@@ -2653,11 +2653,12 @@ value_of_aarch64_user_reg (struct frame_info *frame, const void *baton)
 }
 
 
-/* Implement the "software_single_step" gdbarch method, needed to
-   single step through atomic sequences on AArch64.  */
+/* Checks for an atomic sequence of instructions.  If such a sequence
+   is found, attempt to step through it.  The end of the sequence address is
+   added to the next_pcs list.  */
 
 static std::vector<CORE_ADDR>
-aarch64_software_single_step (struct regcache *regcache)
+aarch64_deal_with_atomic_sequence (struct regcache *regcache)
 {
   struct gdbarch *gdbarch = regcache->arch ();
   enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
@@ -2733,6 +2734,135 @@ aarch64_software_single_step (struct regcache *regcache)
      destination of the conditional branch, if it exists.  */
   for (index = 0; index <= last_breakpoint; index++)
     next_pcs.push_back (breaks[index]);
+
+  return next_pcs;
+}
+
+/* Returns true if the condition evaluates to true. */
+
+static int
+aarch64_test_condition (unsigned long cond, unsigned long cpsr)
+{
+  int result = 0;
+
+  int pstate_n = bit (cpsr, 31);
+  int pstate_z = bit (cpsr, 30);
+  int pstate_c = bit (cpsr, 29);
+  int pstate_v = bit (cpsr, 28);
+
+  switch ((cond >> 1) & 3) {
+  case 0:
+    result = pstate_z;
+    break;
+  case 1:
+    result = pstate_c;
+    break;
+  case 2:
+    result = pstate_n;
+    break;
+  case 3:
+    result = pstate_v;
+    break;
+  case 4:
+    result = (pstate_c == 1) && (pstate_z == 0);
+    break;
+  case 5:
+    result = (pstate_n == pstate_v);
+    break;
+  case 6:
+    result = (pstate_n == pstate_v) && (pstate_z == 0);
+    break;
+  case 7:
+    result = 1;
+    break;
+  }
+
+  if ((cond & 1) == 1 && cond != 0xf) {
+    result = !result;
+  }
+
+  return result;
+}
+
+/* Implement the "software_single_step" gdbarch method.  */
+
+static std::vector<CORE_ADDR>
+aarch64_software_single_step (struct regcache *regcache)
+{
+  struct gdbarch *gdbarch = regcache->arch ();
+  enum bfd_endian byte_order_for_code = gdbarch_byte_order_for_code (gdbarch);
+  const int insn_size = 4;
+
+  CORE_ADDR pc = regcache_read_pc (regcache);
+  unsigned long status = regcache_raw_get_unsigned (regcache,
+						    AARCH64_CPSR_REGNUM);
+  unsigned long pc_val = (unsigned long) pc;
+
+  /* Default case */
+  CORE_ADDR branch_addr = (CORE_ADDR) (pc_val + insn_size);
+
+  uint32_t insn = read_memory_unsigned_integer (pc, insn_size,
+						byte_order_for_code);
+
+  std::vector<CORE_ADDR> next_pcs;
+
+  next_pcs = aarch64_deal_with_atomic_sequence (regcache);
+  if (next_pcs.empty ()) {
+    aarch64_inst inst;
+    if (aarch64_decode_insn (insn, &inst, 1, NULL) != 0)
+      return {};
+
+    /* According to ISA_v82A_A64_xml_00bet3.1, in
+       AArch64 mode, the only things that can touch the
+       PC register are:
+       - the instructions decoded below
+       - AArch64.TakeReset
+       - AArch64.TakeException
+       - AArch64.ExceptionReturn (eret)
+       - ExitDebugState (drps) */
+
+    if (inst.opcode->iclass == condbranch)
+      {
+	/* b.cond */
+	if (aarch64_test_condition (inst.cond->value, status))
+	  branch_addr = pc + inst.operands[0].imm.value;
+      }
+    else if (inst.opcode->iclass == branch_imm)
+      {
+	/* b, bl */
+	branch_addr = pc + inst.operands[0].imm.value;
+      }
+    else if (inst.opcode->iclass == branch_reg)
+      {
+	/* br, blr, ret */
+	branch_addr = regcache_raw_get_unsigned (regcache,
+						 inst.operands[0].reg.regno);
+      }
+    else if (inst.opcode->iclass == compbranch)
+      {
+	/* cbz, cbnz */
+	ULONGEST reg = regcache_raw_get_unsigned (regcache,
+						  inst.operands[0].reg.regno);
+	int op = bit (insn, 24); // cbz vs cbnz
+
+	if (inst.operands[0].qualifier == AARCH64_OPND_QLF_W) // sf
+	  reg &= 0xffffffff;
+
+	if ((reg == 0) == (op == 0))
+	  branch_addr = pc + inst.operands[1].imm.value;
+      }
+    else if (inst.opcode->iclass == testbranch)
+      {
+	/* tbz, tbnz */
+	ULONGEST reg = regcache_raw_get_unsigned (regcache,
+						  inst.operands[0].reg.regno);
+	int bit_val = bit (insn, 24); // tbz vs tbnz
+	if (bit (reg, inst.operands[1].imm.value) == bit_val)
+	  branch_addr = pc + inst.operands[2].imm.value;
+      }
+
+    next_pcs.push_back (branch_addr);
+  }
 
   return next_pcs;
 }
