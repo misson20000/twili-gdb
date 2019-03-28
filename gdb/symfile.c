@@ -842,12 +842,14 @@ init_entry_point_info (struct objfile *objfile)
       ei->entry_point = bfd_get_start_address (objfile->obfd);
       ei->entry_point_p = 1;
     }
-  else if (bfd_get_file_flags (objfile->obfd) & DYNAMIC
-	   && bfd_get_start_address (objfile->obfd) != 0)
+  else if (bfd_get_file_flags (objfile->obfd) & DYNAMIC)
     {
       /* Some shared libraries may have entry points set and be
 	 runnable.  There's no clear way to indicate this, so just check
 	 for values other than zero.  */
+      /* TWILI-GDB PATCH: Horizon executables are shared libraries with
+	 entry point zero. I'm too lazy to add something to gdbarch or
+	 whatever, so this will have to do. */
       ei->entry_point = bfd_get_start_address (objfile->obfd);
       ei->entry_point_p = 1;
     }
