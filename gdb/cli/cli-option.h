@@ -1,6 +1,6 @@
 /* CLI options framework, for GDB.
 
-   Copyright (C) 2017-2019 Free Software Foundation, Inc.
+   Copyright (C) 2017-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,8 +20,8 @@
 #ifndef CLI_OPTION_H
 #define CLI_OPTION_H 1
 
-#include "common/gdb_optional.h"
-#include "common/array-view.h"
+#include "gdbsupport/gdb_optional.h"
+#include "gdbsupport/array-view.h"
 #include "completer.h"
 #include <string>
 #include "command.h"
@@ -82,10 +82,11 @@ public:
      returns the address of some member.  */
   union
     {
-      int *(*boolean) (const option_def &, void *ctx);
+      bool *(*boolean) (const option_def &, void *ctx);
       unsigned int *(*uinteger) (const option_def &, void *ctx);
       int *(*integer) (const option_def &, void *ctx);
       const char **(*enumeration) (const option_def &, void *ctx);
+      char **(*string) (const option_def &, void *ctx);
     }
   var_address;
 
@@ -154,7 +155,7 @@ template<typename Context>
 struct boolean_option_def : option_def
 {
   boolean_option_def (const char *long_option_,
-		      int *(*get_var_address_cb_) (Context *),
+		      bool *(*get_var_address_cb_) (Context *),
 		      show_value_ftype *show_cmd_cb_,
 		      const char *set_doc_,
 		      const char *show_doc_ = nullptr,
@@ -164,7 +165,7 @@ struct boolean_option_def : option_def
 		  show_cmd_cb_,
 		  set_doc_, show_doc_, help_doc_)
   {
-    var_address.boolean = detail::get_var_address<int, Context>;
+    var_address.boolean = detail::get_var_address<bool, Context>;
   }
 };
 
@@ -172,11 +173,11 @@ struct boolean_option_def : option_def
    hood, but unlike boolean options, flag options don't take an on/off
    argument.  */
 
-template<typename Context = int>
+template<typename Context = bool>
 struct flag_option_def : boolean_option_def<Context>
 {
   flag_option_def (const char *long_option_,
-		     int *(*var_address_cb_) (Context *),
+		     bool *(*var_address_cb_) (Context *),
 		     const char *set_doc_,
 		     const char *help_doc_ = nullptr)
     : boolean_option_def<Context> (long_option_,
@@ -258,6 +259,26 @@ struct enum_option_def : option_def
   {
     var_address.enumeration = detail::get_var_address<const char *, Context>;
     this->enums = enumlist;
+  }
+};
+
+/* A var_string command line option.  */
+
+template<typename Context>
+struct string_option_def : option_def
+{
+  string_option_def (const char *long_option_,
+		     char **(*get_var_address_cb_) (Context *),
+		     show_value_ftype *show_cmd_cb_,
+		     const char *set_doc_,
+		     const char *show_doc_ = nullptr,
+		     const char *help_doc_ = nullptr)
+    : option_def (long_option_, var_string,
+		  (erased_get_var_address_ftype *) get_var_address_cb_,
+		  show_cmd_cb_,
+		  set_doc_, show_doc_, help_doc_)
+  {
+    var_address.enumeration = detail::get_var_address<const char *, Context>;
   }
 };
 

@@ -1,6 +1,6 @@
 /* Output generating routines for GDB CLI.
 
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions.
    Written by Fernando Nasser for Cygnus.
@@ -28,8 +28,8 @@
 /* Output an int field.  */
 
 void
-tui_ui_out::do_field_int (int fldno, int width, ui_align alignment,
-			  const char *fldname, int value)
+tui_ui_out::do_field_signed (int fldno, int width, ui_align alignment,
+			     const char *fldname, LONGEST value)
 {
   if (suppress_output ())
     return;
@@ -43,7 +43,7 @@ tui_ui_out::do_field_int (int fldno, int width, ui_align alignment,
     }
   m_start_of_line++;
 
-  cli_ui_out::do_field_int (fldno, width, alignment, fldname, value);
+  cli_ui_out::do_field_signed (fldno, width, alignment, fldname, value);
 }
 
 /* Other cli_field_* end up here so alignment and field separators are
@@ -52,7 +52,7 @@ tui_ui_out::do_field_int (int fldno, int width, ui_align alignment,
 void
 tui_ui_out::do_field_string (int fldno, int width, ui_align align,
 			     const char *fldname, const char *string,
-			     ui_out_style_kind style)
+			     const ui_file_style &style)
 {
   if (suppress_output ())
     return;
@@ -60,25 +60,22 @@ tui_ui_out::do_field_string (int fldno, int width, ui_align align,
   m_start_of_line++;
 
   if (fldname && m_line > 0 && strcmp (fldname, "fullname") == 0)
-    {
-      tui_show_source (string, m_line);
-      return;
-    }
+    return;
 
   cli_ui_out::do_field_string (fldno, width, align, fldname, string, style);
 }
 
 void
 tui_ui_out::do_field_fmt (int fldno, int width, ui_align align,
-			  const char *fldname, const char *format,
-			  va_list args)
+			  const char *fldname, const ui_file_style &style,
+			  const char *format, va_list args)
 {
   if (suppress_output ())
     return;
 
   m_start_of_line++;
 
-  cli_ui_out::do_field_fmt (fldno, width, align, fldname, format, args);
+  cli_ui_out::do_field_fmt (fldno, width, align, fldname, style, format, args);
 }
 
 void

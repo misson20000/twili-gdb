@@ -1,6 +1,6 @@
 /* Target-dependent code for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -37,7 +37,7 @@
 #include "sim-regno.h"
 #include "gdb/sim-ppc.h"
 #include "reggroups.h"
-#include "dwarf2-frame.h"
+#include "dwarf2/frame.h"
 #include "target-descriptions.h"
 #include "user-regs.h"
 #include "record-full.h"
@@ -855,7 +855,7 @@ typedef buf_displaced_step_closure ppc_displaced_step_closure;
 
 /* We can't displaced step atomic sequences.  */
 
-static struct displaced_step_closure *
+static displaced_step_closure_up
 ppc_displaced_step_copy_insn (struct gdbarch *gdbarch,
 			      CORE_ADDR from, CORE_ADDR to,
 			      struct regcache *regs)
@@ -894,7 +894,8 @@ ppc_displaced_step_copy_insn (struct gdbarch *gdbarch,
       displaced_step_dump_bytes (gdb_stdlog, buf, len);
     }
 
-  return closure.release ();
+  /* This is a work around for a problem with g++ 4.8.  */
+  return displaced_step_closure_up (closure.release ());
 }
 
 /* Fix up the state of registers and memory after having single-stepped
@@ -1234,7 +1235,7 @@ store_insn_p (unsigned long op, unsigned long rs,
    this masking operation is equal to BL_INSTRUCTION, then the opcode in
    question is a ``bl'' instruction.
    
-   BL_DISPLACMENT_MASK is anded with the opcode in order to extract
+   BL_DISPLACEMENT_MASK is anded with the opcode in order to extract
    the branch displacement.  */
 
 #define BL_MASK 0xfc000001
@@ -1360,7 +1361,7 @@ rs6000_skip_stack_check (struct gdbarch *gdbarch, const CORE_ADDR start_pc)
       return pc;
     }
 
-  /* Third sequence: No probe; instead, a comparizon between the stack size
+  /* Third sequence: No probe; instead, a comparison between the stack size
      limit (saved in a run-time global variable) and the current stack
      pointer:
 
@@ -2119,9 +2120,9 @@ rs6000_skip_main_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
          to __eabi in case the GCC option "-fleading-underscore" was
 	 used to compile the program.  */
       if (s.minsym != NULL
-          && MSYMBOL_LINKAGE_NAME (s.minsym) != NULL
-	  && (strcmp (MSYMBOL_LINKAGE_NAME (s.minsym), "__eabi") == 0
-	      || strcmp (MSYMBOL_LINKAGE_NAME (s.minsym), "___eabi") == 0))
+          && s.minsym->linkage_name () != NULL
+	  && (strcmp (s.minsym->linkage_name (), "__eabi") == 0
+	      || strcmp (s.minsym->linkage_name (), "___eabi") == 0))
 	pc += 4;
     }
   return pc;
@@ -2205,7 +2206,7 @@ rs6000_skip_trampoline_code (struct frame_info *frame, CORE_ADDR pc)
   msymbol = lookup_minimal_symbol_by_pc (pc);
   if (msymbol.minsym
       && rs6000_in_solib_return_trampoline (gdbarch, pc,
-					    MSYMBOL_LINKAGE_NAME (msymbol.minsym)))
+					    msymbol.minsym->linkage_name ()))
     {
       /* Double-check that the third instruction from PC is relative "b".  */
       op = read_memory_integer (pc + 8, 4, byte_order);
@@ -2272,8 +2273,8 @@ rs6000_builtin_type_vec64 (struct gdbarch *gdbarch)
       append_composite_type_field (t, "v8_int8",
 				   init_vector_type (bt->builtin_int8, 8));
 
-      TYPE_VECTOR (t) = 1;
-      TYPE_NAME (t) = "ppc_builtin_type_vec64";
+      t->set_is_vector (true);
+      t->set_name ("ppc_builtin_type_vec64");
       tdep->ppc_builtin_type_vec64 = t;
     }
 
@@ -2319,8 +2320,8 @@ rs6000_builtin_type_vec128 (struct gdbarch *gdbarch)
       append_composite_type_field (t, "v16_int8",
 				   init_vector_type (bt->builtin_int8, 16));
 
-      TYPE_VECTOR (t) = 1;
-      TYPE_NAME (t) = "ppc_builtin_type_vec128";
+      t->set_is_vector (true);
+      t->set_name ("ppc_builtin_type_vec128");
       tdep->ppc_builtin_type_vec128 = t;
     }
 
@@ -2530,7 +2531,7 @@ rs6000_convert_register_p (struct gdbarch *gdbarch, int regnum,
   return (tdep->ppc_fp0_regnum >= 0
 	  && regnum >= tdep->ppc_fp0_regnum
 	  && regnum < tdep->ppc_fp0_regnum + ppc_num_fprs
-	  && TYPE_CODE (type) == TYPE_CODE_FLT
+	  && type->code () == TYPE_CODE_FLT
 	  && TYPE_LENGTH (type)
 	     != TYPE_LENGTH (builtin_type (gdbarch)->builtin_double));
 }
@@ -2545,7 +2546,7 @@ rs6000_register_to_value (struct frame_info *frame,
   struct gdbarch *gdbarch = get_frame_arch (frame);
   gdb_byte from[PPC_MAX_REGISTER_SIZE];
   
-  gdb_assert (TYPE_CODE (type) == TYPE_CODE_FLT);
+  gdb_assert (type->code () == TYPE_CODE_FLT);
 
   if (!get_frame_register_bytes (frame, regnum, 0,
 				 register_size (gdbarch, regnum),
@@ -2567,7 +2568,7 @@ rs6000_value_to_register (struct frame_info *frame,
   struct gdbarch *gdbarch = get_frame_arch (frame);
   gdb_byte to[PPC_MAX_REGISTER_SIZE];
 
-  gdb_assert (TYPE_CODE (type) == TYPE_CODE_FLT);
+  gdb_assert (type->code () == TYPE_CODE_FLT);
 
   target_float_convert (from, type,
 			to, builtin_type (gdbarch)->builtin_double);
@@ -3314,7 +3315,7 @@ rs6000_adjust_frame_regnum (struct gdbarch *gdbarch, int num, int eh_frame_p)
 
 /* Information about a particular processor variant.  */
 
-struct variant
+struct ppc_variant
   {
     /* Name of this variant.  */
     const char *name;
@@ -3332,7 +3333,7 @@ struct variant
     struct target_desc **tdesc;
   };
 
-static struct variant variants[] =
+static struct ppc_variant variants[] =
 {
   {"powerpc", "PowerPC user-level", bfd_arch_powerpc,
    bfd_mach_ppc, &tdesc_powerpc_altivec32},
@@ -3391,10 +3392,10 @@ static struct variant variants[] =
 /* Return the variant corresponding to architecture ARCH and machine number
    MACH.  If no such variant exists, return null.  */
 
-static const struct variant *
+static const struct ppc_variant *
 find_variant_by_arch (enum bfd_architecture arch, unsigned long mach)
 {
-  const struct variant *v;
+  const struct ppc_variant *v;
 
   for (v = variants; v->name; v++)
     if (arch == v->arch && mach == v->mach)
@@ -3866,7 +3867,7 @@ bfd_uses_spe_extensions (bfd *abfd)
   if (!sect)
     return 0;
 
-  size = bfd_get_section_size (sect);
+  size = bfd_section_size (sect);
   contents = (gdb_byte *) xmalloc (size);
   if (!bfd_get_section_contents (abfd, sect, contents, 0, size))
     {
@@ -6137,19 +6138,9 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   int have_htm_tar = 0;
   int tdesc_wordsize = -1;
   const struct target_desc *tdesc = info.target_desc;
-  struct tdesc_arch_data *tdesc_data = NULL;
+  tdesc_arch_data_up tdesc_data;
   int num_pseudoregs = 0;
   int cur_reg;
-
-  /* INFO may refer to a binary that is not of the PowerPC architecture,
-     e.g. when debugging a stand-alone SPE executable on a Cell/B.E. system.
-     In this case, we must not attempt to infer properties of the (PowerPC
-     side) of the target system from properties of that executable.  Trust
-     the target description instead.  */
-  if (info.abfd
-      && bfd_get_arch (info.abfd) != bfd_arch_powerpc
-      && bfd_get_arch (info.abfd) != bfd_arch_rs6000)
-    info.abfd = NULL;
 
   from_xcoff_exec = info.abfd && info.abfd->format == bfd_object &&
     bfd_get_flavour (info.abfd) == bfd_target_xcoff_flavour;
@@ -6208,7 +6199,7 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
      layout, if we do not already have one.  */
   if (! tdesc_has_registers (tdesc))
     {
-      const struct variant *v;
+      const struct ppc_variant *v;
 
       /* Choose variant.  */
       v = find_variant_by_arch (arch, mach);
@@ -6244,31 +6235,29 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
       valid_p = 1;
       for (i = 0; i < ppc_num_gprs; i++)
-	valid_p &= tdesc_numbered_register (feature, tdesc_data, i, gprs[i]);
-      valid_p &= tdesc_numbered_register (feature, tdesc_data, PPC_PC_REGNUM,
-					  "pc");
-      valid_p &= tdesc_numbered_register (feature, tdesc_data, PPC_LR_REGNUM,
-					  "lr");
-      valid_p &= tdesc_numbered_register (feature, tdesc_data, PPC_XER_REGNUM,
-					  "xer");
+	valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
+					    i, gprs[i]);
+      valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
+					  PPC_PC_REGNUM, "pc");
+      valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
+					  PPC_LR_REGNUM, "lr");
+      valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
+					  PPC_XER_REGNUM, "xer");
 
       /* Allow alternate names for these registers, to accomodate GDB's
 	 historic naming.  */
-      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data,
+      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data.get (),
 						  PPC_MSR_REGNUM, msr_names);
-      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data,
+      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data.get (),
 						  PPC_CR_REGNUM, cr_names);
-      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data,
+      valid_p &= tdesc_numbered_register_choices (feature, tdesc_data.get (),
 						  PPC_CTR_REGNUM, ctr_names);
 
       if (!valid_p)
-	{
-	  tdesc_data_cleanup (tdesc_data);
-	  return NULL;
-	}
+	return NULL;
 
-      have_mq = tdesc_numbered_register (feature, tdesc_data, PPC_MQ_REGNUM,
-					 "mq");
+      have_mq = tdesc_numbered_register (feature, tdesc_data.get (),
+					 PPC_MQ_REGNUM, "mq");
 
       tdesc_wordsize = tdesc_register_bitsize (feature, "pc") / 8;
       if (wordsize == -1)
@@ -6286,16 +6275,13 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	  };
 	  valid_p = 1;
 	  for (i = 0; i < ppc_num_fprs; i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 						PPC_F0_REGNUM + i, fprs[i]);
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_FPSCR_REGNUM, "fpscr");
 
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_fpu = 1;
 
 	  /* The fpscr register was expanded in isa 2.05 to 64 bits
@@ -6320,19 +6306,16 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
 	  valid_p = 1;
 	  for (i = 0; i < ppc_num_gprs; i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 						PPC_VR0_REGNUM + i,
 						vector_regs[i]);
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_VSCR_REGNUM, "vscr");
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_VRSAVE_REGNUM, "vrsave");
 
 	  if (have_spe || !valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_altivec = 1;
 	}
       else
@@ -6356,15 +6339,12 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	  valid_p = 1;
 
 	  for (i = 0; i < ppc_num_vshrs; i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 						PPC_VSR0_UPPER_REGNUM + i,
 						vsx_regs[i]);
 
 	  if (!valid_p || !have_fpu || !have_altivec)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 
 	  have_vsx = 1;
 	}
@@ -6401,19 +6381,16 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
 	  valid_p = 1;
 	  for (i = 0; i < ppc_num_gprs; i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 						PPC_SPE_UPPER_GP0_REGNUM + i,
 						upper_spe[i]);
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_SPE_ACC_REGNUM, "acc");
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_SPE_FSCR_REGNUM, "spefscr");
 
 	  if (have_mq || have_fpu || !valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_spe = 1;
 	}
       else
@@ -6425,14 +6402,11 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
       if (feature != NULL)
 	{
 	  valid_p = 1;
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_PPR_REGNUM, "ppr");
 
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_ppr = 1;
 	}
       else
@@ -6444,14 +6418,11 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
       if (feature != NULL)
 	{
 	  valid_p = 1;
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_DSCR_REGNUM, "dscr");
 
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_dscr = 1;
 	}
       else
@@ -6463,14 +6434,11 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
       if (feature != NULL)
 	{
 	  valid_p = 1;
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_TAR_REGNUM, "tar");
 
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_tar = 1;
 	}
       else
@@ -6487,14 +6455,11 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
 	  valid_p = 1;
 	  for (i = 0; i < ARRAY_SIZE (ebb_regs); i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 						PPC_BESCR_REGNUM + i,
 						ebb_regs[i]);
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_ebb = 1;
 	}
       else
@@ -6508,27 +6473,24 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	{
 	  valid_p = 1;
 
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_MMCR0_REGNUM,
 					      "mmcr0");
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_MMCR2_REGNUM,
 					      "mmcr2");
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_SIAR_REGNUM,
 					      "siar");
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_SDAR_REGNUM,
 					      "sdar");
-	  valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	  valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 					      PPC_SIER_REGNUM,
 					      "sier");
 
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_pmu = 1;
 	}
       else
@@ -6545,14 +6507,11 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
 	  valid_p = 1;
 	  for (i = 0; i < ARRAY_SIZE (tm_spr_regs); i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 						PPC_TFHAR_REGNUM + i,
 						tm_spr_regs[i]);
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 
 	  have_htm_spr = 1;
 	}
@@ -6574,14 +6533,11 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	  valid_p = 1;
 
 	  for (i = 0; i < ARRAY_SIZE (cgprs); i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 						PPC_CR0_REGNUM + i,
 						cgprs[i]);
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 
 	  have_htm_core = 1;
 	}
@@ -6603,15 +6559,12 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	  };
 
 	  for (i = 0; i < ARRAY_SIZE (cfprs); i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 						PPC_CF0_REGNUM + i,
 						cfprs[i]);
 
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_htm_fpu = 1;
 	}
       else
@@ -6633,15 +6586,12 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	  };
 
 	  for (i = 0; i < ARRAY_SIZE (cvmx); i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 						PPC_CVR0_REGNUM + i,
 						cvmx[i]);
 
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_htm_altivec = 1;
 	}
       else
@@ -6663,16 +6613,13 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 	  };
 
 	  for (i = 0; i < ARRAY_SIZE (cvsx); i++)
-	    valid_p &= tdesc_numbered_register (feature, tdesc_data,
+	    valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
 						(PPC_CVSR0_UPPER_REGNUM
 						 + i),
 						cvsx[i]);
 
 	  if (!valid_p || !have_htm_fpu || !have_htm_altivec)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_htm_vsx = 1;
 	}
       else
@@ -6682,14 +6629,11 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 				    "org.gnu.gdb.power.htm.ppr");
       if (feature != NULL)
 	{
-	  valid_p = tdesc_numbered_register (feature, tdesc_data,
+	  valid_p = tdesc_numbered_register (feature, tdesc_data.get (),
 					     PPC_CPPR_REGNUM, "cppr");
 
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_htm_ppr = 1;
 	}
       else
@@ -6699,14 +6643,11 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 				    "org.gnu.gdb.power.htm.dscr");
       if (feature != NULL)
 	{
-	  valid_p = tdesc_numbered_register (feature, tdesc_data,
+	  valid_p = tdesc_numbered_register (feature, tdesc_data.get (),
 					     PPC_CDSCR_REGNUM, "cdscr");
 
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_htm_dscr = 1;
 	}
       else
@@ -6716,14 +6657,11 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 				    "org.gnu.gdb.power.htm.tar");
       if (feature != NULL)
 	{
-	  valid_p = tdesc_numbered_register (feature, tdesc_data,
+	  valid_p = tdesc_numbered_register (feature, tdesc_data.get (),
 					     PPC_CTAR_REGNUM, "ctar");
 
 	  if (!valid_p)
-	    {
-	      tdesc_data_cleanup (tdesc_data);
-	      return NULL;
-	    }
+	    return NULL;
 	  have_htm_tar = 1;
 	}
       else
@@ -6742,10 +6680,7 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
      supplies a 64-bit description while debugging a 32-bit
      binary.  */
   if (tdesc_wordsize != -1 && tdesc_wordsize != wordsize)
-    {
-      tdesc_data_cleanup (tdesc_data);
-      return NULL;
-    }
+    return NULL;
 
 #ifdef HAVE_ELF
   if (from_elf_exec)
@@ -6881,11 +6816,7 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
       if (tdep && tdep->vector_abi != vector_abi)
 	continue;
       if (tdep && tdep->wordsize == wordsize)
-	{
-	  if (tdesc_data != NULL)
-	    tdesc_data_cleanup (tdesc_data);
-	  return arches->gdbarch;
-	}
+	return arches->gdbarch;
     }
 
   /* None found, create a new architecture from INFO, whose bfd_arch_info
@@ -7079,7 +7010,7 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   /* Hook in ABI-specific overrides, if they have been registered.  */
   info.target_desc = tdesc;
-  info.tdesc_data = tdesc_data;
+  info.tdesc_data = tdesc_data.get ();
   gdbarch_init_osabi (info, gdbarch);
 
   switch (info.osabi)
@@ -7102,7 +7033,7 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_tdesc_pseudo_register_type (gdbarch, rs6000_pseudo_register_type);
   set_tdesc_pseudo_register_reggroup_p (gdbarch,
 					rs6000_pseudo_register_reggroup_p);
-  tdesc_use_registers (gdbarch, tdesc, tdesc_data);
+  tdesc_use_registers (gdbarch, tdesc, std::move (tdesc_data));
 
   /* Override the normal target description method to make the SPE upper
      halves anonymous.  */
@@ -7179,22 +7110,6 @@ rs6000_dump_tdep (struct gdbarch *gdbarch, struct ui_file *file)
     return;
 
   /* FIXME: Dump gdbarch_tdep.  */
-}
-
-/* PowerPC-specific commands.  */
-
-static void
-set_powerpc_command (const char *args, int from_tty)
-{
-  printf_unfiltered (_("\
-\"set powerpc\" must be followed by an appropriate subcommand.\n"));
-  help_list (setpowerpccmdlist, "set powerpc ", all_commands, gdb_stdout);
-}
-
-static void
-show_powerpc_command (const char *args, int from_tty)
-{
-  cmd_show_list (showpowerpccmdlist, from_tty, "");
 }
 
 static void
@@ -7317,8 +7232,9 @@ ppc_insn_ds_field (unsigned int insn)
 
 /* Initialization code.  */
 
+void _initialize_rs6000_tdep ();
 void
-_initialize_rs6000_tdep (void)
+_initialize_rs6000_tdep ()
 {
   gdbarch_register (bfd_arch_rs6000, rs6000_gdbarch_init, rs6000_dump_tdep);
   gdbarch_register (bfd_arch_powerpc, rs6000_gdbarch_init, rs6000_dump_tdep);
@@ -7346,13 +7262,13 @@ _initialize_rs6000_tdep (void)
 
   /* Add root prefix command for all "set powerpc"/"show powerpc"
      commands.  */
-  add_prefix_cmd ("powerpc", no_class, set_powerpc_command,
-		  _("Various PowerPC-specific commands."),
-		  &setpowerpccmdlist, "set powerpc ", 0, &setlist);
+  add_basic_prefix_cmd ("powerpc", no_class,
+			_("Various PowerPC-specific commands."),
+			&setpowerpccmdlist, "set powerpc ", 0, &setlist);
 
-  add_prefix_cmd ("powerpc", no_class, show_powerpc_command,
-		  _("Various PowerPC-specific commands."),
-		  &showpowerpccmdlist, "show powerpc ", 0, &showlist);
+  add_show_prefix_cmd ("powerpc", no_class,
+		       _("Various PowerPC-specific commands."),
+		       &showpowerpccmdlist, "show powerpc ", 0, &showlist);
 
   /* Add a command to allow the user to force the ABI.  */
   add_setshow_auto_boolean_cmd ("soft-float", class_support,

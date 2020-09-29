@@ -1,51 +1,78 @@
-2019-05-20  Nick Clifton  <nickc@redhat.com>
+2020-07-30  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
 
-	PR 24569
-	* gprof.c (usage): Restore alphabetical sorting to short options
-	list.  Add -r, -R and -t short options to the list.
-	(main): Add comment about -g and -G possibly being deprecated.
-	* gprof.texi: Update usage example in line with changes above.
+	* Makefile.am (AM_CPPFLAGS): Add LARGEFILE_CPPFLAGS.
+	* Makefile.in: Regenerate.
+	* configure: Regenerate.
 
-2019-05-20  Nick Clifton  <nickc@redhat.com>
-
-	* po/de.po: Updated German translation.
-
-2019-05-08  Alan Modra  <amodra@gmail.com>
-
-	PR 24520
-	* corefile.c (core_init): Set BFD_DECOMPRESS.
-
-2019-04-01  Alan Modra  <amodra@gmail.com>
-
-	PR 24402
-	* symtab.c (symtab_finalize): Init prev_addr to one less than
-	first symbol address, not one more.  Correct test for symbols
-	with leading underscores.
-
-2019-01-21  Nick Clifton  <nickc@redhat.com>
+2020-07-09  Nick Clifton  <nickc@redhat.com>
 
 	* po/tr.po: Updated Turkish translation.
 
-2019-01-19  Nick Clifton  <nickc@redhat.com>
+2020-07-06  Nick Clifton  <nickc@redhat.com>
 
-	* configure: Regenerate.
-	* po/gprof.pot: Regenerate.
+	* po/bg.po: Updated Bulgarian translation.
 
-2018-06-24  Nick Clifton  <nickc@redhat.com>
-
-	2.32 branch created.
-
-2019-01-09  Andrew Paprocki  <andrew@ishiboo.com>
+2020-07-04  Nick Clifton  <nickc@redhat.com>
 
 	* configure: Regenerate.
 
-2019-01-01  Alan Modra  <amodra@gmail.com>
+2020-07-04  Nick Clifton  <nickc@redhat.com>
+
+	Binutils 2.35 branch created.
+
+2020-06-25  Nick Clifton  <nickc@redhat.com>
+
+	* po/sv.po: Updated Swedish translation.
+
+2020-05-21  Alan Modra  <amodra@gmail.com>
+
+	* utils.c (print_name_only): Free demangled without checking
+	first for non-NULL.
+
+2020-05-18  Nick Clifton  <nickc@redhat.com>
+
+	* po/es.po: Update Spanish translation.
+
+2020-05-07  Nick Clifton  <nickc@redhat.com>
+
+	* po/fr.po: Updated French translation.
+
+2020-04-01  Nick Clifton  <nickc@redhat.com>
+
+	* po/sr.po: Updated Serbian translation.
+
+2020-02-24  Nick Clifton  <nickc@redhat.com>
+
+	* po/ms.po: Update Malasian translation.
+
+2020-01-23  Nick Clifton  <nickc@redhat.com>
+
+	* po/es.po: Updated Esperanto translation.
+	* po/fi.po: Updated Finish translation.
+
+2020-01-20  Nick Clifton  <nickc@redhat.com>
+
+	* po/de.po: Updated German translation.
+	* po/pt_BR.po: Updated Brazilian Portuguese translation.
+	* po/ru.po: Updated Russian translation.
+	* po/tr.po: Updated Turkish translation.
+	* po/uk.po: Updated Ukranian translation.
+
+2020-01-18  Nick Clifton  <nickc@redhat.com>
+
+	* configure: Regenerate.
+
+2020-01-18  Nick Clifton  <nickc@redhat.com>
+
+	Binutils 2.34 branch created.
+
+2020-01-01  Alan Modra  <amodra@gmail.com>
 
 	Update year range in copyright notice of all files.
 
-For older changes see ChangeLog-2018
+For older changes see ChangeLog-2019
 
-Copyright (C) 2019 Free Software Foundation, Inc.
+Copyright (C) 2020 Free Software Foundation, Inc.
 
 Copying and distribution of this file, with or without modification,
 are permitted in any medium without royalty provided the copyright

@@ -1,5 +1,5 @@
 /* Low level interface to ptrace, for GDB when running under Unix.
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -27,14 +27,14 @@
 #include "observable.h"
 #include <signal.h>
 #include <fcntl.h>
-#include "gdb_select.h"
+#include "gdbsupport/gdb_select.h"
 
 #include "inflow.h"
 #include "gdbcmd.h"
 #ifdef HAVE_TERMIOS_H
 #include <termios.h>
 #endif
-#include "common/job-control.h"
+#include "gdbsupport/job-control.h"
 
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
@@ -673,7 +673,7 @@ swap_terminal_info (inferior *a, inferior *b)
   std::swap (a->terminal_state, b->terminal_state);
 }
 
-void
+static void
 info_terminal_command (const char *arg, int from_tty)
 {
   target_terminal::info (arg, from_tty);
@@ -953,8 +953,9 @@ initialize_stdin_serial (void)
   stdin_serial = serial_fdopen (0);
 }
 
+void _initialize_inflow ();
 void
-_initialize_inflow (void)
+_initialize_inflow ()
 {
   add_info ("terminal", info_terminal_command,
 	    _("Print inferior's saved terminal status."));

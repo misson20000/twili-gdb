@@ -1,6 +1,6 @@
 /* Python interface to line tables.
 
-   Copyright (C) 2013-2019 Free Software Foundation, Inc.
+   Copyright (C) 2013-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -336,7 +336,7 @@ ltpy_entry_get_pc (PyObject *self, void *closure)
 {
   linetable_entry_object *obj = (linetable_entry_object *) self;
 
-  return  gdb_py_object_from_longest (obj->pc).release ();
+  return gdb_py_object_from_ulongest (obj->pc).release ();
 }
 
 /* LineTable iterator functions.  */
@@ -369,6 +369,7 @@ ltpy_iterator_dealloc (PyObject *obj)
   ltpy_iterator_object *iter_obj = (ltpy_iterator_object *) obj;
 
   Py_DECREF (iter_obj->source);
+  Py_TYPE (obj)->tp_free (obj);
 }
 
 /* Return a reference to the line table iterator.  */

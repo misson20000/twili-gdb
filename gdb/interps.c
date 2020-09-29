@@ -1,6 +1,6 @@
 /* Manages interpreters for GDB, the GNU debugger.
 
-   Copyright (C) 2000-2019 Free Software Foundation, Inc.
+   Copyright (C) 2000-2020 Free Software Foundation, Inc.
 
    Written by Jim Ingham <jingham@apple.com> of Apple Computer, Inc.
 
@@ -32,7 +32,7 @@
 #include "defs.h"
 #include "gdbcmd.h"
 #include "ui-out.h"
-#include "event-loop.h"
+#include "gdbsupport/event-loop.h"
 #include "event-top.h"
 #include "interps.h"
 #include "completer.h"
@@ -377,7 +377,7 @@ interpreter_exec_cmd (const char *args, int from_tty)
   nrules = prules.count ();
 
   if (nrules < 2)
-    error (_("Usage: interpreter-exec INTERPRETER [ COMMAND... ]"));
+    error (_("Usage: interpreter-exec INTERPRETER COMMAND..."));
 
   old_interp = ui_interp->current_interpreter;
 
@@ -439,16 +439,20 @@ current_interpreter (void)
 }
 
 /* This just adds the "interpreter-exec" command.  */
+void _initialize_interpreter ();
 void
-_initialize_interpreter (void)
+_initialize_interpreter ()
 {
   struct cmd_list_element *c;
 
   c = add_cmd ("interpreter-exec", class_support,
 	       interpreter_exec_cmd, _("\
 Execute a command in an interpreter.\n\
-It takes two arguments:\n\
+Usage: interpreter-exec INTERPRETER COMMAND...\n\
 The first argument is the name of the interpreter to use.\n\
-The second argument is the command to execute."), &cmdlist);
+The following arguments are the commands to execute.\n\
+A command can have arguments, separated by spaces.\n\
+These spaces must be escaped using \\ or the command\n\
+and its arguments must be enclosed in double quotes."), &cmdlist);
   set_cmd_completer (c, interpreter_completer);
 }

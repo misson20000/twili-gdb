@@ -1,6 +1,6 @@
 /* Shared allocation functions for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -34,9 +34,9 @@
    GDBSERVER define when possible, and for this file it seemed
    simple to do so.  */
 
-#include "common/common-defs.h"
+#include "gdbsupport/common-defs.h"
 #include "libiberty.h"
-#include "common/errors.h"
+#include "gdbsupport/errors.h"
 
 /* The xmalloc() (libiberty.h) family of memory management routines.
 

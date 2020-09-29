@@ -1,6 +1,6 @@
 /* Python interface to symbol tables.
 
-   Copyright (C) 2008-2019 Free Software Foundation, Inc.
+   Copyright (C) 2008-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -253,6 +253,7 @@ stpy_dealloc (PyObject *obj)
   if (symtab->next)
     symtab->next->prev = symtab->prev;
   symtab->symtab = NULL;
+  Py_TYPE (obj)->tp_free (obj);
 }
 
 
@@ -263,7 +264,7 @@ salpy_get_pc (PyObject *self, void *closure)
 
   SALPY_REQUIRE_VALID (self, sal);
 
-  return gdb_py_long_from_ulongest (sal->pc);
+  return gdb_py_object_from_ulongest (sal->pc).release ();
 }
 
 /* Implementation of the get method for the 'last' attribute of
@@ -277,7 +278,7 @@ salpy_get_last (PyObject *self, void *closure)
   SALPY_REQUIRE_VALID (self, sal);
 
   if (sal->end > 0)
-    return gdb_py_long_from_ulongest (sal->end - 1);
+    return gdb_py_object_from_ulongest (sal->end - 1).release ();
   else
     Py_RETURN_NONE;
 }
@@ -289,7 +290,7 @@ salpy_get_line (PyObject *self, void *closure)
 
   SALPY_REQUIRE_VALID (self, sal);
 
-  return PyInt_FromLong (sal->line);
+  return gdb_py_object_from_longest (sal->line).release ();
 }
 
 static PyObject *

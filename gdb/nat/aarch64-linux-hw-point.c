@@ -1,4 +1,4 @@
-/* Copyright (C) 2009-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2009-2020 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GDB.
@@ -16,9 +16,9 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "common/common-defs.h"
-#include "common/break-common.h"
-#include "common/common-regcache.h"
+#include "gdbsupport/common-defs.h"
+#include "gdbsupport/break-common.h"
+#include "gdbsupport/common-regcache.h"
 #include "nat/linux-nat.h"
 #include "aarch64-linux-hw-point.h"
 

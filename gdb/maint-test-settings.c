@@ -1,6 +1,6 @@
-/* Support for GDB maintenance commands.
+/* Maintenance commands for testing the settings framework.
 
-   Copyright (C) 2019 Free Software Foundation, Inc.
+   Copyright (C) 2019-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -21,49 +21,16 @@
 #include "defs.h"
 #include "gdbcmd.h"
 
-/* Command list for "maint test-settings".  */
-static cmd_list_element *maintenance_test_settings_list;
+/* Command list for "maint set test-settings".  */
+static cmd_list_element *maintenance_set_test_settings_list;
 
-/* Command list for "maint test-settings set/show".  */
-static cmd_list_element *maintenance_test_settings_set_list;
-static cmd_list_element *maintenance_test_settings_show_list;
+/* Command list for "maint show test-settings".  */
+static cmd_list_element *maintenance_show_test_settings_list;
 
-/* The "maintenance test-options" prefix command.  */
-
-static void
-maintenance_test_settings_cmd (const char *arg, int from_tty)
-{
-  printf_unfiltered
-    (_("\"maintenance test-settings\" must be followed "
-       "by the name of a subcommand.\n"));
-  help_list (maintenance_test_settings_list, "maintenance test-settings ",
-	     all_commands, gdb_stdout);
-}
-
-/* The "maintenance test-options set" prefix command.  */
-
-static void
-maintenance_test_settings_set_cmd (const char *args, int from_tty)
-{
-  printf_unfiltered (_("\"maintenance test-settings set\" must be followed "
-		       "by the name of a set command.\n"));
-  help_list (maintenance_test_settings_set_list,
-	     "maintenance test-settings set ",
-	     all_commands, gdb_stdout);
-}
-
-/* The "maintenance test-options show" prefix command.  */
-
-static void
-maintenance_test_settings_show_cmd (const char *args, int from_tty)
-{
-  cmd_show_list (maintenance_test_settings_show_list, from_tty, "");
-}
-
-/* Control variables for all the "maintenance test-options set/show
+/* Control variables for all the "maintenance set/show test-settings
    xxx" commands.  */
 
-static int maintenance_test_settings_boolean;
+static bool maintenance_test_settings_boolean;
 
 static auto_boolean maintenance_test_settings_auto_boolean = AUTO_BOOLEAN_AUTO;
 
@@ -85,18 +52,26 @@ static char *maintenance_test_settings_optional_filename;
 
 static char *maintenance_test_settings_filename;
 
-static const char *maintenance_test_settings_enum;
-
-/* Enum values for the "maintenance test-settings set/show boolean"
+/* Enum values for the "maintenance set/show test-settings boolean"
    commands.  */
+static const char maintenance_test_settings_xxx[] = "xxx";
+static const char maintenance_test_settings_yyy[] = "yyy";
+static const char maintenance_test_settings_zzz[] = "zzz";
+
 static const char *const maintenance_test_settings_enums[] = {
-  "xxx", "yyy", "zzz", nullptr
+  maintenance_test_settings_xxx,
+  maintenance_test_settings_yyy,
+  maintenance_test_settings_zzz,
+  nullptr
 };
 
-/* The "maintenance test-options show xxx" commands.  */
+static const char *maintenance_test_settings_enum
+  = maintenance_test_settings_xxx;
+
+/* The "maintenance show test-settings xxx" commands.  */
 
 static void
-maintenance_test_settings_show_value_cmd
+maintenance_show_test_settings_value_cmd
   (struct ui_file *file, int from_tty,
    struct cmd_list_element *c, const char *value)
 {
@@ -104,154 +79,149 @@ maintenance_test_settings_show_value_cmd
 }
 
 
+void _initialize_maint_test_settings ();
 void
-_initialize_maint_test_settings (void)
+_initialize_maint_test_settings ()
 {
-  add_prefix_cmd ("test-settings", no_class,
-		  maintenance_test_settings_cmd,
-		  _("\
-Generic command for testing the settings infrastructure."),
-		  &maintenance_test_settings_list,
-		  "maintenance test-settings ", 0,
-		  &maintenancelist);
+  maintenance_test_settings_filename = xstrdup ("/foo/bar");
 
-  add_prefix_cmd ("set", class_maintenance,
-		  maintenance_test_settings_set_cmd, _("\
+  add_basic_prefix_cmd ("test-settings", class_maintenance,
+			_("\
 Set GDB internal variables used for set/show command infrastructure testing."),
-		  &maintenance_test_settings_set_list,
-		  "maintenance test-settings set ",
-		  0/*allow-unknown*/,
-		  &maintenance_test_settings_list);
+			&maintenance_set_test_settings_list,
+			"maintenance set test-settings ",
+			0/*allow-unknown*/,
+			&maintenance_set_cmdlist);
 
-  add_prefix_cmd ("show", class_maintenance,
-		  maintenance_test_settings_show_cmd, _("\
+  add_show_prefix_cmd ("test-settings", class_maintenance,
+		       _("\
 Show GDB internal variables used for set/show command infrastructure testing."),
-		  &maintenance_test_settings_show_list,
-		  "maintenance test-settings show ",
-		  0/*allow-unknown*/,
-		  &maintenance_test_settings_list);
+		       &maintenance_show_test_settings_list,
+		       "maintenance show test-settings ",
+		       0/*allow-unknown*/,
+		       &maintenance_show_cmdlist);
 
   add_setshow_boolean_cmd ("boolean", class_maintenance,
 			   &maintenance_test_settings_boolean, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
 			   nullptr, /* help_doc */
 			   nullptr, /* set_cmd */
-			   maintenance_test_settings_show_value_cmd,
-			   &maintenance_test_settings_set_list,
-			   &maintenance_test_settings_show_list);
+			   maintenance_show_test_settings_value_cmd,
+			   &maintenance_set_test_settings_list,
+			   &maintenance_show_test_settings_list);
 
   add_setshow_auto_boolean_cmd ("auto-boolean", class_maintenance,
 				&maintenance_test_settings_auto_boolean, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
 				nullptr, /* help_doc */
 				nullptr, /* set_cmd */
-				maintenance_test_settings_show_value_cmd,
-				&maintenance_test_settings_set_list,
-				&maintenance_test_settings_show_list);
+				maintenance_show_test_settings_value_cmd,
+				&maintenance_set_test_settings_list,
+				&maintenance_show_test_settings_list);
 
   add_setshow_uinteger_cmd ("uinteger", class_maintenance,
 			   &maintenance_test_settings_uinteger, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
-			   nullptr, /* help_doc */
-			   nullptr, /* set_cmd */
-			   maintenance_test_settings_show_value_cmd,
-			   &maintenance_test_settings_set_list,
-			   &maintenance_test_settings_show_list);
+command used for internal testing."), _("\
+command used for internal testing."),
+			    nullptr, /* help_doc */
+			    nullptr, /* set_cmd */
+			    maintenance_show_test_settings_value_cmd,
+			    &maintenance_set_test_settings_list,
+			    &maintenance_show_test_settings_list);
 
   add_setshow_integer_cmd ("integer", class_maintenance,
 			   &maintenance_test_settings_integer, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
 			   nullptr, /* help_doc */
 			   nullptr, /* set_cmd */
-			   maintenance_test_settings_show_value_cmd,
-			   &maintenance_test_settings_set_list,
-			   &maintenance_test_settings_show_list);
+			   maintenance_show_test_settings_value_cmd,
+			   &maintenance_set_test_settings_list,
+			   &maintenance_show_test_settings_list);
 
   add_setshow_string_cmd ("string", class_maintenance,
      &maintenance_test_settings_string, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
      nullptr, /* help_doc */
      nullptr, /* set_cmd */
-     maintenance_test_settings_show_value_cmd,
-     &maintenance_test_settings_set_list,
-     &maintenance_test_settings_show_list);
+			  maintenance_show_test_settings_value_cmd,
+			  &maintenance_set_test_settings_list,
+			  &maintenance_show_test_settings_list);
 
   add_setshow_string_noescape_cmd
     ("string-noescape", class_maintenance,
      &maintenance_test_settings_string_noescape, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
      nullptr, /* help_doc */
      nullptr, /* set_cmd */
-     maintenance_test_settings_show_value_cmd,
-     &maintenance_test_settings_set_list,
-     &maintenance_test_settings_show_list);
+     maintenance_show_test_settings_value_cmd,
+     &maintenance_set_test_settings_list,
+     &maintenance_show_test_settings_list);
 
   add_setshow_optional_filename_cmd
     ("optional-filename", class_maintenance,
      &maintenance_test_settings_optional_filename, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
      nullptr, /* help_doc */
      nullptr, /* set_cmd */
-     maintenance_test_settings_show_value_cmd,
-     &maintenance_test_settings_set_list,
-     &maintenance_test_settings_show_list);
+     maintenance_show_test_settings_value_cmd,
+     &maintenance_set_test_settings_list,
+     &maintenance_show_test_settings_list);
 
   add_setshow_filename_cmd ("filename", class_maintenance,
 			    &maintenance_test_settings_filename, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
 			    nullptr, /* help_doc */
 			    nullptr, /* set_cmd */
-			    maintenance_test_settings_show_value_cmd,
-			    &maintenance_test_settings_set_list,
-			    &maintenance_test_settings_show_list);
+			    maintenance_show_test_settings_value_cmd,
+			    &maintenance_set_test_settings_list,
+			    &maintenance_show_test_settings_list);
 
   add_setshow_zinteger_cmd ("zinteger", class_maintenance,
 			    &maintenance_test_settings_zinteger, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
 			    nullptr, /* help_doc */
 			    nullptr, /* set_cmd */
-			    maintenance_test_settings_show_value_cmd,
-			    &maintenance_test_settings_set_list,
-			    &maintenance_test_settings_show_list);
+			    maintenance_show_test_settings_value_cmd,
+			    &maintenance_set_test_settings_list,
+			    &maintenance_show_test_settings_list);
 
   add_setshow_zuinteger_cmd ("zuinteger", class_maintenance,
 			     &maintenance_test_settings_zuinteger, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
 			     nullptr, /* help_doc */
 			     nullptr, /* set_cmd */
-			     maintenance_test_settings_show_value_cmd,
-			     &maintenance_test_settings_set_list,
-			     &maintenance_test_settings_show_list);
+			     maintenance_show_test_settings_value_cmd,
+			     &maintenance_set_test_settings_list,
+			     &maintenance_show_test_settings_list);
 
   add_setshow_zuinteger_unlimited_cmd
     ("zuinteger-unlimited", class_maintenance,
      &maintenance_test_settings_zuinteger_unlimited, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
      nullptr, /* help_doc */
      nullptr, /* set_cmd */
-     maintenance_test_settings_show_value_cmd,
-     &maintenance_test_settings_set_list,
-     &maintenance_test_settings_show_list);
+     maintenance_show_test_settings_value_cmd,
+     &maintenance_set_test_settings_list,
+     &maintenance_show_test_settings_list);
 
   add_setshow_enum_cmd ("enum", class_maintenance,
 			maintenance_test_settings_enums,
 			&maintenance_test_settings_enum, _("\
-command used for internal testing"), _("\
-command used for internal testing"),
+command used for internal testing."), _("\
+command used for internal testing."),
 			nullptr, /* help_doc */
 			nullptr, /* set_cmd */
-			maintenance_test_settings_show_value_cmd,
-			&maintenance_test_settings_set_list,
-			&maintenance_test_settings_show_list);
+			maintenance_show_test_settings_value_cmd,
+			&maintenance_set_test_settings_list,
+			&maintenance_show_test_settings_list);
 }

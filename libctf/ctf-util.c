@@ -1,5 +1,5 @@
 /* Miscellaneous utilities.
-   Copyright (C) 2019 Free Software Foundation, Inc.
+   Copyright (C) 2019-2020 Free Software Foundation, Inc.
 
    This file is part of libctf.
 
@@ -80,6 +80,34 @@ ctf_list_delete (ctf_list_t *lp, void *existing)
     lp->l_prev = p->l_prev;
 }
 
+/* Return 1 if the list is empty.  */
+
+int
+ctf_list_empty_p (ctf_list_t *lp)
+{
+  return (lp->l_next == NULL && lp->l_prev == NULL);
+}
+
+/* Splice one entire list onto the end of another one.  The existing list is
+   emptied.  */
+
+void
+ctf_list_splice (ctf_list_t *lp, ctf_list_t *append)
+{
+  if (ctf_list_empty_p (append))
+    return;
+
+  if (lp->l_prev != NULL)
+    lp->l_prev->l_next = append->l_next;
+  else
+    lp->l_next = append->l_next;
+
+  append->l_next->l_prev = lp->l_prev;
+  lp->l_prev = append->l_prev;
+  append->l_next = NULL;
+  append->l_prev = NULL;
+}
+
 /* Convert a 32-bit ELF symbol into Elf64 and return a pointer to it.  */
 
 Elf64_Sym *
@@ -95,42 +123,7 @@ ctf_sym_to_elf64 (const Elf32_Sym *src, Elf64_Sym *dst)
   return dst;
 }
 
-/* Convert an encoded CTF string name into a pointer to a C string by looking
-  up the appropriate string table buffer and then adding the offset.  */
-
-const char *
-ctf_strraw (ctf_file_t *fp, uint32_t name)
-{
-  ctf_strs_t *ctsp = &fp->ctf_str[CTF_NAME_STID (name)];
-
-  if (ctsp->cts_strs != NULL && CTF_NAME_OFFSET (name) < ctsp->cts_len)
-    return (ctsp->cts_strs + CTF_NAME_OFFSET (name));
-
-  /* String table not loaded or corrupt offset.  */
-  return NULL;
-}
-
-const char *
-ctf_strptr (ctf_file_t *fp, uint32_t name)
-{
-  const char *s = ctf_strraw (fp, name);
-  return (s != NULL ? s : "(?)");
-}
-
-/* Same as strdup(3C), but use ctf_alloc() to do the memory allocation. */
-
-_libctf_malloc_ char *
-ctf_strdup (const char *s1)
-{
-  char *s2 = ctf_alloc (strlen (s1) + 1);
-
-  if (s2 != NULL)
-    (void) strcpy (s2, s1);
-
-  return s2;
-}
-
-/* A string appender working on dynamic strings.  */
+/* A string appender working on dynamic strings.  Returns NULL on OOM.  */
 
 char *
 ctf_str_append (char *s, const char *append)
@@ -154,6 +147,32 @@ ctf_str_append (char *s, const char *append)
   return s;
 }
 
+/* A version of ctf_str_append that returns the old string on OOM.  */
+
+char *
+ctf_str_append_noerr (char *s, const char *append)
+{
+  char *new_s;
+
+  new_s = ctf_str_append (s, append);
+  if (!new_s)
+    return s;
+  return new_s;
+}
+
+/* A realloc() that fails noisily if called with any ctf_str_num_users.  */
+void *
+ctf_realloc (ctf_file_t *fp, void *ptr, size_t size)
+{
+  if (fp->ctf_str_num_refs > 0)
+    {
+      ctf_dprintf ("%p: attempt to realloc() string table with %lu active refs\n",
+		   (void *) fp, (unsigned long) fp->ctf_str_num_refs);
+      return NULL;
+    }
+  return realloc (ptr, size);
+}
+
 /* Store the specified error code into errp if it is non-NULL, and then
    return NULL for the benefit of the caller.  */
 
@@ -173,4 +192,50 @@ ctf_set_errno (ctf_file_t * fp, int err)
 {
   fp->ctf_errno = err;
   return CTF_ERR;
+}
+
+/* Create a ctf_next_t.  */
+
+ctf_next_t *
+ctf_next_create (void)
+{
+  return calloc (1, sizeof (struct ctf_next));
+}
+
+/* Destroy a ctf_next_t, for early exit from iterators.  */
+
+void
+ctf_next_destroy (ctf_next_t *i)
+{
+  if (i == NULL)
+    return;
+
+  if (i->ctn_iter_fun == (void (*) (void)) ctf_dynhash_next_sorted)
+    free (i->u.ctn_sorted_hkv);
+  free (i);
+}
+
+/* Copy a ctf_next_t.  */
+
+ctf_next_t *
+ctf_next_copy (ctf_next_t *i)
+{
+  ctf_next_t *i2;
+
+  if ((i2 = ctf_next_create()) == NULL)
+    return NULL;
+  memcpy (i2, i, sizeof (struct ctf_next));
+
+  if (i2->ctn_iter_fun == (void (*) (void)) ctf_dynhash_next_sorted)
+    {
+      size_t els = ctf_dynhash_elements ((ctf_dynhash_t *) i->cu.ctn_h);
+      if ((i2->u.ctn_sorted_hkv = calloc (els, sizeof (ctf_next_hkv_t))) == NULL)
+	{
+	  free (i2);
+	  return NULL;
+	}
+      memcpy (i2->u.ctn_sorted_hkv, i->u.ctn_sorted_hkv,
+	      els * sizeof (ctf_next_hkv_t));
+    }
+  return i2;
 }

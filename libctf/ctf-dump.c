@@ -1,5 +1,5 @@
 /* Textual dumping of CTF data.
-   Copyright (C) 2019 Free Software Foundation, Inc.
+   Copyright (C) 2019-2020 Free Software Foundation, Inc.
 
    This file is part of libctf.
 
@@ -19,6 +19,8 @@
 
 #include <ctf-impl.h>
 #include <string.h>
+
+#define str_append(s, a) ctf_str_append_noerr (s, a)
 
 /* One item to be dumped, in string form.  */
 
@@ -52,7 +54,7 @@ ctf_dump_append (ctf_dump_state_t *state, char *str)
 {
   ctf_dump_item_t *cdi;
 
-  if ((cdi = ctf_alloc (sizeof (struct ctf_dump_item))) == NULL)
+  if ((cdi = malloc (sizeof (struct ctf_dump_item))) == NULL)
     return (ctf_set_errno (state->cds_fp, ENOMEM));
 
   cdi->cdi_item = str;
@@ -73,29 +75,15 @@ ctf_dump_free (ctf_dump_state_t *state)
     {
       free (cdi->cdi_item);
       next_cdi = ctf_list_next (cdi);
-      ctf_free (cdi);
+      free (cdi);
     }
-}
-
-/* Slices need special handling to distinguish them from their referenced
-   type.  */
-
-static int
-ctf_is_slice (ctf_file_t *fp, ctf_id_t id, ctf_encoding_t *enc)
-{
-  int kind = ctf_type_kind (fp, id);
-
-  return (((kind == CTF_K_INTEGER) || (kind == CTF_K_ENUM)
-	   || (kind == CTF_K_FLOAT))
-	  && ctf_type_reference (fp, id) != CTF_ERR
-	  && ctf_type_encoding (fp, id, enc) == 0);
 }
 
 /* Return a dump for a single type, without member info: but do show the
    type's references.  */
 
 static char *
-ctf_dump_format_type (ctf_file_t *fp, ctf_id_t id)
+ctf_dump_format_type (ctf_file_t *fp, ctf_id_t id, int flag)
 {
   ctf_id_t new_id;
   char *str = NULL, *bit = NULL, *buf = NULL;
@@ -104,37 +92,75 @@ ctf_dump_format_type (ctf_file_t *fp, ctf_id_t id)
   do
     {
       ctf_encoding_t enc;
+      const char *nonroot_leader = "";
+      const char *nonroot_trailer = "";
 
       id = new_id;
+      if (flag == CTF_ADD_NONROOT)
+	{
+	  nonroot_leader = "{";
+	  nonroot_trailer = "}";
+	}
+
       buf = ctf_type_aname (fp, id);
       if (!buf)
+	{
+	  if (id == 0 || ctf_errno (fp) == ECTF_NONREPRESENTABLE)
+	    {
+	      str = str_append (str, " (type not represented in CTF)");
+	      ctf_set_errno (fp, ECTF_NOTREF);
+	      break;
+	    }
+
+	  goto err;
+	}
+
+      if (asprintf (&bit, " %s%lx: ", nonroot_leader, id) < 0)
 	goto oom;
+      str = str_append (str, bit);
+      free (bit);
+      bit = NULL;
 
-      /* Slices get a different print representation.  */
+      if (buf[0] != '\0')
+	{
+	  str = str_append (str, buf);
+	  str = str_append (str, " ");
+	}
 
-      if (ctf_is_slice (fp, id, &enc))
-	{
-	  ctf_type_encoding (fp, id, &enc);
-	  if (asprintf (&bit, " %lx: [slice 0x%x:0x%x]",
-			id, enc.cte_offset, enc.cte_bits) < 0)
-	    goto oom;
-	}
-      else
-	{
-	  if (asprintf (&bit, " %lx: %s (size %lx)", id, buf[0] == '\0' ?
-			"(nameless)" : buf,
-			(unsigned long) ctf_type_size (fp, id)) < 0)
-	    goto oom;
-	}
       free (buf);
       buf = NULL;
-      str = ctf_str_append (str, bit);
+
+      /* Slices get a different print representation.  */
+      if (ctf_type_kind_unsliced (fp, id) == CTF_K_SLICE)
+	{
+	  ctf_type_encoding (fp, id, &enc);
+	  if (asprintf (&bit, "[slice 0x%x:0x%x] ",
+			enc.cte_offset, enc.cte_bits) < 0)
+	    goto oom;
+	}
+      else if (ctf_type_kind (fp, id) == CTF_K_INTEGER)
+	{
+	  ctf_type_encoding (fp, id, &enc);
+	  if (asprintf (&bit, "[0x%x:0x%x] ",
+			enc.cte_offset, enc.cte_bits) < 0)
+	    goto oom;
+	}
+      str = str_append (str, bit);
+      free (bit);
+      bit = NULL;
+
+      if (asprintf (&bit, "(size 0x%lx)%s",
+		    (unsigned long) ctf_type_size (fp, id),
+		    nonroot_trailer) < 0)
+	goto oom;
+
+      str = str_append (str, bit);
       free (bit);
       bit = NULL;
 
       new_id = ctf_type_reference (fp, id);
       if (new_id != CTF_ERR)
-	str = ctf_str_append (str, " ->");
+	str = str_append (str, " ->");
     } while (new_id != CTF_ERR);
 
   if (ctf_errno (fp) != ECTF_NOTREF)
@@ -146,11 +172,139 @@ ctf_dump_format_type (ctf_file_t *fp, ctf_id_t id)
   return str;
 
  oom:
+  ctf_set_errno (fp, errno);
+ err:
+  ctf_err_warn (fp, 1, 0, _("cannot format name dumping type 0x%lx"), id);
   free (buf);
   free (str);
   free (bit);
-  ctf_set_errno (fp, ENOMEM);
   return NULL;
+}
+
+/* Dump one string field from the file header into the cds_items.  */
+static int
+ctf_dump_header_strfield (ctf_file_t *fp, ctf_dump_state_t *state,
+			  const char *name, uint32_t value)
+{
+  char *str;
+  if (value)
+    {
+      if (asprintf (&str, "%s: %s\n", name, ctf_strptr (fp, value)) < 0)
+	goto err;
+      ctf_dump_append (state, str);
+    }
+  return 0;
+
+ err:
+  return (ctf_set_errno (fp, errno));
+}
+
+/* Dump one section-offset field from the file header into the cds_items.  */
+static int
+ctf_dump_header_sectfield (ctf_file_t *fp, ctf_dump_state_t *state,
+			   const char *sect, uint32_t off, uint32_t nextoff)
+{
+  char *str;
+  if (nextoff - off)
+    {
+      if (asprintf (&str, "%s:\t0x%lx -- 0x%lx (0x%lx bytes)\n", sect,
+		    (unsigned long) off, (unsigned long) (nextoff - 1),
+		    (unsigned long) (nextoff - off)) < 0)
+	goto err;
+      ctf_dump_append (state, str);
+    }
+  return 0;
+
+ err:
+  return (ctf_set_errno (fp, errno));
+}
+
+/* Dump the file header into the cds_items.  */
+static int
+ctf_dump_header (ctf_file_t *fp, ctf_dump_state_t *state)
+{
+  char *str;
+  const ctf_header_t *hp = fp->ctf_header;
+  const char *vertab[] =
+    {
+     NULL, "CTF_VERSION_1",
+     "CTF_VERSION_1_UPGRADED_3 (latest format, version 1 type "
+     "boundaries)",
+     "CTF_VERSION_2",
+     "CTF_VERSION_3", NULL
+    };
+  const char *verstr = NULL;
+
+  if (asprintf (&str, "Magic number: %x\n", hp->cth_magic) < 0)
+      goto err;
+  ctf_dump_append (state, str);
+
+  if (hp->cth_version <= CTF_VERSION)
+    verstr = vertab[hp->cth_version];
+
+  if (verstr == NULL)
+    verstr = "(not a valid version)";
+
+  if (asprintf (&str, "Version: %i (%s)\n", hp->cth_version,
+		verstr) < 0)
+    goto err;
+  ctf_dump_append (state, str);
+
+  /* Everything else is only printed if present.  */
+
+  /* The flags are unusual in that they represent the ctf_file_t *in memory*:
+     flags representing compression, etc, are turned off as the file is
+     decompressed.  So we store a copy of the flags before they are changed, for
+     the dumper.  */
+
+  if (fp->ctf_openflags > 0)
+    {
+      if (fp->ctf_openflags)
+	if (asprintf (&str, "Flags: 0x%x (%s)", fp->ctf_openflags,
+		      fp->ctf_openflags & CTF_F_COMPRESS ? "CTF_F_COMPRESS"
+							 : "") < 0)
+	goto err;
+      ctf_dump_append (state, str);
+    }
+
+  if (ctf_dump_header_strfield (fp, state, "Parent label",
+				hp->cth_parlabel) < 0)
+    goto err;
+
+  if (ctf_dump_header_strfield (fp, state, "Parent name", hp->cth_parname) < 0)
+    goto err;
+
+  if (ctf_dump_header_strfield (fp, state, "Compilation unit name",
+				hp->cth_cuname) < 0)
+    goto err;
+
+  if (ctf_dump_header_sectfield (fp, state, "Label section", hp->cth_lbloff,
+				 hp->cth_objtoff) < 0)
+    goto err;
+
+  if (ctf_dump_header_sectfield (fp, state, "Data object section",
+				 hp->cth_objtoff, hp->cth_funcoff) < 0)
+    goto err;
+
+  if (ctf_dump_header_sectfield (fp, state, "Function info section",
+				 hp->cth_funcoff, hp->cth_varoff) < 0)
+    goto err;
+
+  if (ctf_dump_header_sectfield (fp, state, "Variable section",
+				 hp->cth_varoff, hp->cth_typeoff) < 0)
+    goto err;
+
+  if (ctf_dump_header_sectfield (fp, state, "Type section",
+				 hp->cth_typeoff, hp->cth_stroff) < 0)
+    goto err;
+
+  if (ctf_dump_header_sectfield (fp, state, "String section", hp->cth_stroff,
+				 hp->cth_stroff + hp->cth_strlen + 1) < 0)
+    goto err;
+
+  return 0;
+ err:
+  return (ctf_set_errno (fp, errno));
 }
 
 /* Dump a single label into the cds_items.  */
@@ -164,15 +318,16 @@ ctf_dump_label (const char *name, const ctf_lblinfo_t *info,
   ctf_dump_state_t *state = arg;
 
   if (asprintf (&str, "%s -> ", name) < 0)
-    return (ctf_set_errno (state->cds_fp, ENOMEM));
+    return (ctf_set_errno (state->cds_fp, errno));
 
-  if ((typestr = ctf_dump_format_type (state->cds_fp, info->ctb_type)) == NULL)
+  if ((typestr = ctf_dump_format_type (state->cds_fp, info->ctb_type,
+				       CTF_ADD_ROOT)) == NULL)
     {
       free (str);
-      return -1;			/* errno is set for us.  */
+      return 0;				/* Swallow the error.  */
     }
 
-  str = ctf_str_append (str, typestr);
+  str = str_append (str, typestr);
   free (typestr);
 
   ctf_dump_append (state, str);
@@ -213,22 +368,23 @@ ctf_dump_objts (ctf_file_t *fp, ctf_dump_state_t *state)
       if (sym_name[0] == '\0')
 	{
 	  if (asprintf (&str, "%lx -> ", (unsigned long) i) < 0)
-	    return (ctf_set_errno (fp, ENOMEM));
+	    return (ctf_set_errno (fp, errno));
 	}
       else
 	{
 	  if (asprintf (&str, "%s (%lx) -> ", sym_name, (unsigned long) i) < 0)
-	    return (ctf_set_errno (fp, ENOMEM));
+	    return (ctf_set_errno (fp, errno));
 	}
 
       /* Variable type.  */
-      if ((typestr = ctf_dump_format_type (state->cds_fp, type)) == NULL)
+      if ((typestr = ctf_dump_format_type (state->cds_fp, type,
+					   CTF_ADD_ROOT)) == NULL)
 	{
 	  free (str);
-	  return -1;			/* errno is set for us.  */
+	  return 0;			/* Swallow the error.  */
 	}
 
-      str = ctf_str_append (str, typestr);
+      str = str_append (str, typestr);
       free (typestr);
 
       ctf_dump_append (state, str);
@@ -246,13 +402,11 @@ ctf_dump_funcs (ctf_file_t *fp, ctf_dump_state_t *state)
 
   for (i = 0; i < fp->ctf_nsyms; i++)
     {
-      char *str ;
-      char *bit;
+      char *str;
+      char *bit = NULL;
       const char *sym_name;
       ctf_funcinfo_t fi;
       ctf_id_t type;
-      size_t j;
-      ctf_id_t *args;
 
       if ((type = ctf_func_info (state->cds_fp, i, &fi)) == CTF_ERR)
 	switch (ctf_errno (state->cds_fp))
@@ -263,65 +417,65 @@ ctf_dump_funcs (ctf_file_t *fp, ctf_dump_state_t *state)
 	  case ECTF_NOSYMTAB:
 	    return -1;
 	  case ECTF_NOTDATA:
-	  case ECTF_NOTYPEDAT:
+	  case ECTF_NOTFUNC:
+	  case ECTF_NOFUNCDAT:
 	    continue;
 	  }
-      if ((args = calloc (fi.ctc_argc, sizeof (ctf_id_t))) == NULL)
-	return (ctf_set_errno (fp, ENOMEM));
 
-      /* Return type.  */
-      if ((str = ctf_type_aname (state->cds_fp, type)) == NULL)
-	goto err;
+      /* Return type and all args.  */
+      if ((bit = ctf_type_aname (state->cds_fp, type)) == NULL)
+	{
+	  ctf_err_warn (fp, 1, ctf_errno (state->cds_fp),
+			_("cannot look up return type dumping function type "
+			  "for symbol 0x%li"), (unsigned long) i);
+	  free (bit);
+	  return -1;			/* errno is set for us.  */
+	}
 
-      str = ctf_str_append (str, " ");
-
-      /* Function name.  */
+      /* Replace in the returned string, dropping in the function name.  */
 
       sym_name = ctf_lookup_symbol_name (fp, i);
-      if (sym_name[0] == '\0')
+      if (sym_name[0] != '\0')
 	{
-	  if (asprintf (&bit, "%lx ", (unsigned long) i) < 0)
+	  char *retstar;
+	  char *new_bit;
+	  char *walk;
+
+	  new_bit = malloc (strlen (bit) + 1 + strlen (sym_name));
+	  if (!new_bit)
 	    goto oom;
+
+	  /* See ctf_type_aname.  */
+	  retstar = strstr (bit, "(*) (");
+	  if (!ctf_assert (fp, retstar))
+	    goto assert_err;
+	  retstar += 2;			/* After the '*' */
+
+	  /* C is not good at search-and-replace.  */
+	  walk = new_bit;
+	  memcpy (walk, bit, retstar - bit);
+	  walk += (retstar - bit);
+	  strcpy (walk, sym_name);
+	  walk += strlen (sym_name);
+	  strcpy (walk, retstar);
+
+	  free (bit);
+	  bit = new_bit;
 	}
-      else
-	{
-	  if (asprintf (&bit, "%s (%lx) ", sym_name, (unsigned long) i) < 0)
-	    goto oom;
-	}
-      str = ctf_str_append (str, bit);
-      str = ctf_str_append (str, " (");
+
+      if (asprintf (&str, "Symbol 0x%lx: %s", (unsigned long) i, bit) < 0)
+	goto oom;
       free (bit);
 
-      /* Function arguments.  */
-
-      if (ctf_func_args (state->cds_fp, i, fi.ctc_argc, args) < 0)
-	goto err;
-
-      for (j = 0; j < fi.ctc_argc; j++)
-	{
-	  if ((bit = ctf_type_aname (state->cds_fp, args[j])) == NULL)
-	    goto err;
-	  str = ctf_str_append (str, bit);
-	  if ((j < fi.ctc_argc - 1) || (fi.ctc_flags & CTF_FUNC_VARARG))
-	    str = ctf_str_append (str, ", ");
-	  free (bit);
-	}
-
-      if (fi.ctc_flags & CTF_FUNC_VARARG)
-	str = ctf_str_append (str, "...");
-      str = ctf_str_append (str, ")");
-
-      free (args);
       ctf_dump_append (state, str);
       continue;
 
     oom:
-      free (args);
-      free (str);
-      return (ctf_set_errno (fp, ENOMEM));
-    err:
-      free (args);
-      free (str);
+      free (bit);
+      return (ctf_set_errno (fp, errno));
+
+    assert_err:
+      free (bit);
       return -1;		/* errno is set for us.  */
     }
   return 0;
@@ -336,15 +490,16 @@ ctf_dump_var (const char *name, ctf_id_t type, void *arg)
   ctf_dump_state_t *state = arg;
 
   if (asprintf (&str, "%s -> ", name) < 0)
-    return (ctf_set_errno (state->cds_fp, ENOMEM));
+    return (ctf_set_errno (state->cds_fp, errno));
 
-  if ((typestr = ctf_dump_format_type (state->cds_fp, type)) == NULL)
+  if ((typestr = ctf_dump_format_type (state->cds_fp, type,
+				       CTF_ADD_ROOT)) == NULL)
     {
       free (str);
-      return -1;			/* errno is set for us.  */
+      return 0;			/* Swallow the error.  */
     }
 
-  str = ctf_str_append (str, typestr);
+  str = str_append (str, typestr);
   free (typestr);
 
   ctf_dump_append (state, str);
@@ -360,62 +515,101 @@ ctf_dump_member (const char *name, ctf_id_t id, unsigned long offset,
   char *typestr = NULL;
   char *bit = NULL;
   ctf_encoding_t ep;
+  int has_encoding = 0;
   ssize_t i;
 
   for (i = 0; i < depth; i++)
-    *state->cdm_str = ctf_str_append (*state->cdm_str, "    ");
+    *state->cdm_str = str_append (*state->cdm_str, "    ");
 
   if ((typestr = ctf_type_aname (state->cdm_fp, id)) == NULL)
-    goto oom;
+    {
+      if (id == 0 || ctf_errno (state->cdm_fp) == ECTF_NONREPRESENTABLE)
+	{
+	  if (asprintf (&bit, "    [0x%lx] (type not represented in CTF)",
+			offset) < 0)
+	    goto oom;
 
-  if (asprintf (&bit, "    [0x%lx] (ID 0x%lx) (kind %i) %s %s (aligned at 0x%lx",
-		offset, id, ctf_type_kind (state->cdm_fp, id), typestr, name,
-		(unsigned long) ctf_type_align (state->cdm_fp, id)) < 0)
-    goto oom;
-  *state->cdm_str = ctf_str_append (*state->cdm_str, bit);
+	  *state->cdm_str = str_append (*state->cdm_str, bit);
+	  free (typestr);
+	  free (bit);
+	  return 0;
+	}
+
+      return -1;				/* errno is set for us.  */
+    }
+
+  if (ctf_type_encoding (state->cdm_fp, id, &ep) == 0)
+    {
+      has_encoding = 1;
+      ctf_type_encoding (state->cdm_fp, id, &ep);
+
+      if (asprintf (&bit, "    [0x%lx] (ID 0x%lx) (kind %i) %s%s%s:%i "
+		    "(aligned at 0x%lx", offset, id,
+		    ctf_type_kind (state->cdm_fp, id), typestr,
+		    (name[0] != 0 && typestr[0] != 0) ? " " : "", name,
+		    ep.cte_bits, (unsigned long) ctf_type_align (state->cdm_fp,
+								 id)) < 0)
+	goto oom;
+    }
+  else
+    {
+      if (asprintf (&bit, "    [0x%lx] (ID 0x%lx) (kind %i) %s%s%s "
+		    "(aligned at 0x%lx", offset, id,
+		    ctf_type_kind (state->cdm_fp, id), typestr,
+		    (name[0] != 0 && typestr[0] != 0) ? " " : "", name,
+		    (unsigned long) ctf_type_align (state->cdm_fp, id)) < 0)
+	goto oom;
+    }
+
+  *state->cdm_str = str_append (*state->cdm_str, bit);
   free (typestr);
   free (bit);
   typestr = NULL;
   bit = NULL;
 
-  if ((ctf_type_kind (state->cdm_fp, id) == CTF_K_INTEGER)
-      || (ctf_type_kind (state->cdm_fp, id) == CTF_K_FLOAT)
-      || (ctf_is_slice (state->cdm_fp, id, &ep) == CTF_K_ENUM))
+  if (has_encoding)
     {
-      ctf_type_encoding (state->cdm_fp, id, &ep);
       if (asprintf (&bit, ", format 0x%x, offset:bits 0x%x:0x%x", ep.cte_format,
 		    ep.cte_offset, ep.cte_bits) < 0)
 	goto oom;
-      *state->cdm_str = ctf_str_append (*state->cdm_str, bit);
+      *state->cdm_str = str_append (*state->cdm_str, bit);
       free (bit);
       bit = NULL;
     }
 
-  *state->cdm_str = ctf_str_append (*state->cdm_str, ")\n");
+  *state->cdm_str = str_append (*state->cdm_str, ")\n");
   return 0;
 
  oom:
   free (typestr);
   free (bit);
-  return (ctf_set_errno (state->cdm_fp, ENOMEM));
+  return (ctf_set_errno (state->cdm_fp, errno));
 }
 
 /* Dump a single type into the cds_items.  */
-
 static int
-ctf_dump_type (ctf_id_t id, void *arg)
+ctf_dump_type (ctf_id_t id, int flag, void *arg)
 {
   char *str;
   ctf_dump_state_t *state = arg;
   ctf_dump_membstate_t membstate = { &str, state->cds_fp };
   size_t len;
 
-  if ((str = ctf_dump_format_type (state->cds_fp, id)) == NULL)
+  if ((str = ctf_dump_format_type (state->cds_fp, id, flag)) == NULL)
     goto err;
 
-  str = ctf_str_append (str, "\n");
+  str = str_append (str, "\n");
   if ((ctf_type_visit (state->cds_fp, id, ctf_dump_member, &membstate)) < 0)
-    goto err;
+    {
+      if (id == 0 || ctf_errno (state->cds_fp) == ECTF_NONREPRESENTABLE)
+	{
+	  ctf_dump_append (state, str);
+	  return 0;
+	}
+      ctf_err_warn (state->cds_fp, 1, ctf_errno (state->cds_fp),
+		    _("cannot visit members dumping type 0x%lx"), id);
+      goto err;
+    }
 
   /* Trim off the last linefeed added by ctf_dump_member().  */
   len = strlen (str);
@@ -427,7 +621,7 @@ ctf_dump_type (ctf_id_t id, void *arg)
 
  err:
   free (str);
-  return -1;				/* errno is set for us.  */
+  return 0;				/* Swallow the error.  */
 }
 
 /* Dump the string table into the cds_items.  */
@@ -444,7 +638,7 @@ ctf_dump_str (ctf_file_t *fp, ctf_dump_state_t *state)
       if (asprintf (&str, "%lx: %s",
 		    (unsigned long) (s - fp->ctf_str[CTF_STRTAB_0].cts_strs),
 		    s) < 0)
-	return (ctf_set_errno (fp, ENOMEM));
+	return (ctf_set_errno (fp, errno));
       ctf_dump_append (state, str);
       s += strlen (s) + 1;
     }
@@ -478,7 +672,7 @@ ctf_dump (ctf_file_t *fp, ctf_dump_state_t **statep, ctf_sect_names_t sect,
 	 by bit.  The first call will take (much) longer than otherwise, but the
 	 amortized time needed is the same.  */
 
-      if ((*statep = ctf_alloc (sizeof (struct ctf_dump_state))) == NULL)
+      if ((*statep = malloc (sizeof (struct ctf_dump_state))) == NULL)
 	{
 	  ctf_set_errno (fp, ENOMEM);
 	  goto end;
@@ -492,8 +686,7 @@ ctf_dump (ctf_file_t *fp, ctf_dump_state_t **statep, ctf_sect_names_t sect,
       switch (sect)
 	{
 	case CTF_SECT_HEADER:
-	  /* Nothing doable (yet): entire header is discarded after read-phase.  */
-	  str = strdup ("");
+	  ctf_dump_header (fp, state);
 	  break;
 	case CTF_SECT_LABEL:
 	  if (ctf_label_iter (fp, ctf_dump_label, state) < 0)
@@ -516,7 +709,7 @@ ctf_dump (ctf_file_t *fp, ctf_dump_state_t **statep, ctf_sect_names_t sect,
 	    goto end;			/* errno is set for us.  */
 	  break;
 	case CTF_SECT_TYPE:
-	  if (ctf_type_iter (fp, ctf_dump_type, state) < 0)
+	  if (ctf_type_iter_all (fp, ctf_dump_type, state) < 0)
 	    goto end;			/* errno is set for us.  */
 	  break;
 	case CTF_SECT_STR:
@@ -563,8 +756,8 @@ ctf_dump (ctf_file_t *fp, ctf_dump_state_t **statep, ctf_sect_names_t sect,
 	    nline[0] = '\0';
 
 	  ret = func (sect, line, arg);
-	  str = ctf_str_append (str, ret);
-	  str = ctf_str_append (str, "\n");
+	  str = str_append (str, ret);
+	  str = str_append (str, "\n");
 	  if (ret != line)
 	    free (ret);
 
@@ -583,14 +776,21 @@ ctf_dump (ctf_file_t *fp, ctf_dump_state_t **statep, ctf_sect_names_t sect,
 	str[len-1] = '\0';
     }
   else
-    str = strdup (state->cds_current->cdi_item);
+    {
+      str = strdup (state->cds_current->cdi_item);
+      if (!str)
+	{
+	  ctf_set_errno (fp, ENOMEM);
+	  return str;
+	}
+    }
 
   ctf_set_errno (fp, 0);
   return str;
 
  end:
   ctf_dump_free (state);
-  ctf_free (state);
+  free (state);
   ctf_set_errno (fp, 0);
   *statep = NULL;
   return NULL;

@@ -1,5 +1,5 @@
 /* Target-dependent code for the S12Z, for the GDB.
-   Copyright (C) 2018-2019 Free Software Foundation, Inc.
+   Copyright (C) 2018-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -21,8 +21,8 @@
 #include "defs.h"
 
 #include "arch-utils.h"
-#include "dwarf2-frame.h"
-#include "common/errors.h"
+#include "dwarf2/frame.h"
+#include "gdbsupport/errors.h"
 #include "frame-unwind.h"
 #include "gdbcore.h"
 #include "gdbcmd.h"
@@ -147,7 +147,7 @@ s12z_fprintf_disasm (void *stream, const char *format, ...)
   return 0;
 }
 
-struct disassemble_info
+static struct disassemble_info
 s12z_disassemble_info (struct gdbarch *gdbarch)
 {
   struct disassemble_info di;
@@ -170,7 +170,7 @@ struct mem_read_abstraction
 {
   struct mem_read_abstraction_base base; /* The parent struct.  */
   bfd_vma memaddr;                  /* Where to read from.  */
-  struct disassemble_info* info;  /* The disassember  to use for reading.  */
+  struct disassemble_info* info;  /* The disassembler  to use for reading.  */
 };
 
 /* Advance the reader by one byte.  */
@@ -614,9 +614,9 @@ s12z_return_value (struct gdbarch *gdbarch, struct value *function,
                    struct type *type, struct regcache *regcache,
                    gdb_byte *readbuf, const gdb_byte *writebuf)
 {
-  if (TYPE_CODE (type) == TYPE_CODE_STRUCT
-      || TYPE_CODE (type) == TYPE_CODE_UNION
-      || TYPE_CODE (type) == TYPE_CODE_ARRAY
+  if (type->code () == TYPE_CODE_STRUCT
+      || type->code () == TYPE_CODE_UNION
+      || type->code () == TYPE_CODE_ARRAY
       || TYPE_LENGTH (type) > 4)
     return RETURN_VALUE_STRUCT_CONVENTION;
 
@@ -676,7 +676,7 @@ s12z_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_register_type (gdbarch, s12z_register_type);
 
   frame_unwind_append_unwinder (gdbarch, &s12z_frame_unwind);
-  /* Currently, the only known producer for this archtecture, produces buggy
+  /* Currently, the only known producer for this architecture, produces buggy
      dwarf CFI.   So don't append a dwarf unwinder until the situation is
      better understood.  */
 
@@ -685,8 +685,9 @@ s12z_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
+void _initialize_s12z_tdep ();
 void
-_initialize_s12z_tdep (void)
+_initialize_s12z_tdep ()
 {
   gdbarch_register (bfd_arch_s12z, s12z_gdbarch_init, NULL);
 }

@@ -1,6 +1,6 @@
 /* Self tests for string_view for GDB, the GNU debugger.
 
-   Copyright (C) 2018-2019 Free Software Foundation, Inc.
+   Copyright (C) 2018-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -24,8 +24,8 @@
 #define GNULIB_NAMESPACE gnulib
 
 #include "defs.h"
-#include "common/selftest.h"
-#include "common/gdb_string_view.h"
+#include "gdbsupport/selftest.h"
+#include "gdbsupport/gdb_string_view.h"
 
 /* Used by the included .cc files below.  Included here because the
    included test files are wrapped in a namespace.  */
@@ -172,6 +172,7 @@ run_tests ()
 
 #endif /* __cplusplus < 201703L */
 
+void _initialize_string_view_selftests ();
 void
 _initialize_string_view_selftests ()
 {

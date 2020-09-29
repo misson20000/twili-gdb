@@ -1,6 +1,6 @@
 /* nto-tdep.c - general QNX Neutrino target functionality.
 
-   Copyright (C) 2003-2019 Free Software Foundation, Inc.
+   Copyright (C) 2003-2020 Free Software Foundation, Inc.
 
    Contributed by QNX Software Systems Ltd.
 
@@ -32,7 +32,7 @@
 #include "gdbcore.h"
 #include "objfiles.h"
 #include "source.h"
-#include "common/pathstuff.h"
+#include "gdbsupport/pathstuff.h"
 
 #define QNX_NOTE_NAME	"QNX"
 #define QNX_INFO_SECT_NAME "QNX_info"
@@ -319,8 +319,8 @@ nto_sniff_abi_note_section (bfd *abfd, asection *sect, void *obj)
   const char *name;
   const unsigned sizeof_Elf_Nhdr = 12;
 
-  sectname = bfd_get_section_name (abfd, sect);
-  sectsize = bfd_section_size (abfd, sect);
+  sectname = bfd_section_name (sect);
+  sectsize = bfd_section_size (sect);
 
   if (sectsize > 128)
     sectsize = 128;
@@ -355,7 +355,7 @@ nto_elf_osabi_sniffer (bfd *abfd)
   return osabi;
 }
 
-static const char *nto_thread_state_str[] =
+static const char * const nto_thread_state_str[] =
 {
   "DEAD",		/* 0  0x00 */
   "RUNNING",	/* 1  0x01 */

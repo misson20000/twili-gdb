@@ -1,6 +1,6 @@
 /* Low level packing and unpacking of values for GDB, the GNU Debugger.
 
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -41,8 +41,9 @@
 #include "user-regs.h"
 #include <algorithm>
 #include "completer.h"
-#include "common/selftest.h"
-#include "common/array-view.h"
+#include "gdbsupport/selftest.h"
+#include "gdbsupport/array-view.h"
+#include "cli/cli-style.h"
 
 /* Definition of a user function.  */
 struct internal_function
@@ -272,8 +273,8 @@ struct value
   LONGEST bitsize = 0;
 
   /* Only used for bitfields; position of start of field.  For
-     gdbarch_bits_big_endian=0 targets, it is the position of the LSB.  For
-     gdbarch_bits_big_endian=1 targets, it is the position of the MSB.  */
+     little-endian targets, it is the position of the LSB.  For
+     big-endian targets, it is the position of the MSB.  */
   LONGEST bitpos = 0;
 
   /* The number of references to this value.  When a value is created,
@@ -996,16 +997,16 @@ show_max_value_size (struct ui_file *file, int from_tty,
 static void
 check_type_length_before_alloc (const struct type *type)
 {
-  unsigned int length = TYPE_LENGTH (type);
+  ULONGEST length = TYPE_LENGTH (type);
 
   if (max_value_size > -1 && length > max_value_size)
     {
-      if (TYPE_NAME (type) != NULL)
-	error (_("value of type `%s' requires %u bytes, which is more "
-		 "than max-value-size"), TYPE_NAME (type), length);
+      if (type->name () != NULL)
+	error (_("value of type `%s' requires %s bytes, which is more "
+		 "than max-value-size"), type->name (), pulongest (length));
       else
-	error (_("value requires %u bytes, which is more than "
-		 "max-value-size"), length);
+	error (_("value requires %s bytes, which is more than "
+		 "max-value-size"), pulongest (length));
     }
 }
 
@@ -1040,7 +1041,10 @@ allocate_value (struct type *type)
 struct value *
 allocate_repeat_value (struct type *type, int count)
 {
-  int low_bound = current_language->string_lower_bound;		/* ??? */
+  /* Despite the fact that we are really creating an array of TYPE here, we
+     use the string lower bound as the array lower bound.  This seems to
+     work fine for now.  */
+  int low_bound = current_language->string_lower_bound ();
   /* FIXME-type-allocation: need a way to free this type when we are
      done with it.  */
   struct type *array_type
@@ -1176,9 +1180,9 @@ value_actual_type (struct value *value, int resolve_simple_types,
     {
       /* If result's target type is TYPE_CODE_STRUCT, proceed to
 	 fetch its rtti type.  */
-      if ((TYPE_CODE (result) == TYPE_CODE_PTR || TYPE_IS_REFERENCE (result))
-	  && TYPE_CODE (check_typedef (TYPE_TARGET_TYPE (result)))
-	     == TYPE_CODE_STRUCT
+      if ((result->code () == TYPE_CODE_PTR || TYPE_IS_REFERENCE (result))
+	  && (check_typedef (TYPE_TARGET_TYPE (result))->code ()
+	      == TYPE_CODE_STRUCT)
 	  && !value_optimized_out (value))
         {
           struct type *real_type;
@@ -1411,7 +1415,18 @@ value_optimized_out (struct value *value)
 	}
       catch (const gdb_exception_error &ex)
 	{
-	  /* Fall back to checking value->optimized_out.  */
+	  switch (ex.error)
+	    {
+	    case MEMORY_ERROR:
+	    case OPTIMIZED_OUT_ERROR:
+	    case NOT_AVAILABLE_ERROR:
+	      /* These can normally happen when we try to access an
+		 optimized out or unavailable register, either in a
+		 physical register or spilled to memory.  */
+	      break;
+	    default:
+	      throw;
+	    }
 	}
     }
 
@@ -1977,7 +1992,7 @@ init_if_undefined_command (const char* args, int from_tty)
   intvar = expr->elts[2].internalvar;
 
   /* Only evaluate the expression if the lvalue is void.
-     This may still fail if the expresssion is invalid.  */
+     This may still fail if the expression is invalid.  */
   if (intvar->kind == INTERNALVAR_VOID)
     evaluate_expression (expr.get ());
 }
@@ -2152,7 +2167,7 @@ value_of_internalvar (struct gdbarch *gdbarch, struct internalvar *var)
      on this value go back to affect the original internal variable.
 
      Do not do this for INTERNALVAR_MAKE_VALUE variables, as those have
-     no underlying modifyable state in the internal variable.
+     no underlying modifiable state in the internal variable.
 
      Likewise, if the variable's value is a computed lvalue, we want
      references to it to produce another computed lvalue, where
@@ -2188,7 +2203,7 @@ get_internalvar_integer (struct internalvar *var, LONGEST *result)
     {
       struct type *type = check_typedef (value_type (var->u.value));
 
-      if (TYPE_CODE (type) == TYPE_CODE_INT)
+      if (type->code () == TYPE_CODE_INT)
 	{
 	  *result = value_as_long (var->u.value);
 	  return 1;
@@ -2253,7 +2268,7 @@ set_internalvar (struct internalvar *var, struct value *val)
     error (_("Cannot overwrite convenience function %s"), var->name);
 
   /* Prepare new contents.  */
-  switch (TYPE_CODE (check_typedef (value_type (val))))
+  switch (check_typedef (value_type (val))->code ())
     {
     case TYPE_CODE_VOID:
       new_kind = INTERNALVAR_VOID;
@@ -2290,7 +2305,7 @@ set_internalvar (struct internalvar *var, struct value *val)
          when accessing the value.
          If we keep it, we would still refer to the origin value.
          Remove the location property in case it exist.  */
-      remove_dyn_prop (DYN_PROP_DATA_LOCATION, value_type (new_data.value));
+      value_type (new_data.value)->remove_dyn_prop (DYN_PROP_DATA_LOCATION);
 
       break;
     }
@@ -2420,33 +2435,43 @@ function_command (const char *command, int from_tty)
   /* Do nothing.  */
 }
 
-/* Clean up if an internal function's command is destroyed.  */
-static void
-function_destroyer (struct cmd_list_element *self, void *ignore)
-{
-  xfree ((char *) self->name);
-  xfree ((char *) self->doc);
-}
+/* Helper function that does the work for add_internal_function.  */
 
-/* Add a new internal function.  NAME is the name of the function; DOC
-   is a documentation string describing the function.  HANDLER is
-   called when the function is invoked.  COOKIE is an arbitrary
-   pointer which is passed to HANDLER and is intended for "user
-   data".  */
-void
-add_internal_function (const char *name, const char *doc,
-		       internal_function_fn handler, void *cookie)
+static struct cmd_list_element *
+do_add_internal_function (const char *name, const char *doc,
+			  internal_function_fn handler, void *cookie)
 {
-  struct cmd_list_element *cmd;
   struct internal_function *ifn;
   struct internalvar *var = lookup_internalvar (name);
 
   ifn = create_internal_function (name, handler, cookie);
   set_internalvar_function (var, ifn);
 
-  cmd = add_cmd (xstrdup (name), no_class, function_command, (char *) doc,
-		 &functionlist);
-  cmd->destroyer = function_destroyer;
+  return add_cmd (name, no_class, function_command, doc, &functionlist);
+}
+
+/* See value.h.  */
+
+void
+add_internal_function (const char *name, const char *doc,
+		       internal_function_fn handler, void *cookie)
+{
+  do_add_internal_function (name, doc, handler, cookie);
+}
+
+/* See value.h.  */
+
+void
+add_internal_function (gdb::unique_xmalloc_ptr<char> &&name,
+		       gdb::unique_xmalloc_ptr<char> &&doc,
+		       internal_function_fn handler, void *cookie)
+{
+  struct cmd_list_element *cmd
+    = do_add_internal_function (name.get (), doc.get (), handler, cookie);
+  doc.release ();
+  cmd->doc_allocated = 1;
+  name.release ();
+  cmd->name_allocated = 1;
 }
 
 /* Update VALUE before discarding OBJFILE.  COPIED_TYPES is used to
@@ -2494,22 +2519,19 @@ preserve_one_internalvar (struct internalvar *var, struct objfile *objfile,
 void
 preserve_values (struct objfile *objfile)
 {
-  htab_t copied_types;
   struct internalvar *var;
 
   /* Create the hash table.  We allocate on the objfile's obstack, since
      it is soon to be deleted.  */
-  copied_types = create_copied_types_hash (objfile);
+  htab_up copied_types = create_copied_types_hash (objfile);
 
   for (const value_ref_ptr &item : value_history)
-    preserve_one_value (item.get (), objfile, copied_types);
+    preserve_one_value (item.get (), objfile, copied_types.get ());
 
   for (var = internalvars; var; var = var->next)
-    preserve_one_internalvar (var, objfile, copied_types);
+    preserve_one_internalvar (var, objfile, copied_types.get ());
 
-  preserve_ext_lang_values (objfile, copied_types);
-
-  htab_delete (copied_types);
+  preserve_ext_lang_values (objfile, copied_types.get ());
 }
 
 static void
@@ -2539,7 +2561,8 @@ show_convenience (const char *ignore, int from_tty)
 	}
       catch (const gdb_exception_error &ex)
 	{
-	  fprintf_filtered (gdb_stdout, _("<error: %s>"), ex.what ());
+	  fprintf_styled (gdb_stdout, metadata_style.style (),
+			  _("<error: %s>"), ex.what ());
 	}
 
       printf_filtered (("\n"));
@@ -2579,7 +2602,7 @@ value_from_xmethod (xmethod_worker_up &&worker)
 struct type *
 result_type_of_xmethod (struct value *method, gdb::array_view<value *> argv)
 {
-  gdb_assert (TYPE_CODE (value_type (method)) == TYPE_CODE_XMETHOD
+  gdb_assert (value_type (method)->code () == TYPE_CODE_XMETHOD
 	      && method->lval == lval_xcallable && !argv.empty ());
 
   return method->location.xm_worker->get_result_type (argv[0], argv.slice (1));
@@ -2590,7 +2613,7 @@ result_type_of_xmethod (struct value *method, gdb::array_view<value *> argv)
 struct value *
 call_xmethod (struct value *method, gdb::array_view<value *> argv)
 {
-  gdb_assert (TYPE_CODE (value_type (method)) == TYPE_CODE_XMETHOD
+  gdb_assert (value_type (method)->code () == TYPE_CODE_XMETHOD
 	      && method->lval == lval_xcallable && !argv.empty ());
 
   return method->location.xm_worker->invoke (argv[0], argv.slice (1));
@@ -2665,8 +2688,8 @@ value_as_address (struct value *val)
 
      The following shortcut avoids this whole mess.  If VAL is a
      function, just return its address directly.  */
-  if (TYPE_CODE (value_type (val)) == TYPE_CODE_FUNC
-      || TYPE_CODE (value_type (val)) == TYPE_CODE_METHOD)
+  if (value_type (val)->code () == TYPE_CODE_FUNC
+      || value_type (val)->code () == TYPE_CODE_METHOD)
     return value_address (val);
 
   val = coerce_array (val);
@@ -2708,7 +2731,7 @@ value_as_address (struct value *val)
      converted to pointers; usually, the ABI doesn't either, but
      ABI-specific code is a more reasonable place to handle it.  */
 
-  if (TYPE_CODE (value_type (val)) != TYPE_CODE_PTR
+  if (value_type (val)->code () != TYPE_CODE_PTR
       && !TYPE_IS_REFERENCE (value_type (val))
       && gdbarch_integer_to_address_p (gdbarch))
     return gdbarch_integer_to_address (gdbarch, value_type (val),
@@ -2735,10 +2758,10 @@ value_as_address (struct value *val)
 LONGEST
 unpack_long (struct type *type, const gdb_byte *valaddr)
 {
-  enum bfd_endian byte_order = gdbarch_byte_order (get_type_arch (type));
-  enum type_code code = TYPE_CODE (type);
+  enum bfd_endian byte_order = type_byte_order (type);
+  enum type_code code = type->code ();
   int len = TYPE_LENGTH (type);
-  int nosign = TYPE_UNSIGNED (type);
+  int nosign = type->is_unsigned ();
 
   switch (code)
     {
@@ -2751,10 +2774,33 @@ unpack_long (struct type *type, const gdb_byte *valaddr)
     case TYPE_CODE_CHAR:
     case TYPE_CODE_RANGE:
     case TYPE_CODE_MEMBERPTR:
-      if (nosign)
-	return extract_unsigned_integer (valaddr, len, byte_order);
-      else
-	return extract_signed_integer (valaddr, len, byte_order);
+      {
+	LONGEST result;
+
+	if (type->bit_size_differs_p ())
+	  {
+	    unsigned bit_off = type->bit_offset ();
+	    unsigned bit_size = type->bit_size ();
+	    if (bit_size == 0)
+	      {
+		/* unpack_bits_as_long doesn't handle this case the
+		   way we'd like, so handle it here.  */
+		result = 0;
+	      }
+	    else
+	      result = unpack_bits_as_long (type, valaddr, bit_off, bit_size);
+	  }
+	else
+	  {
+	    if (nosign)
+	      result = extract_unsigned_integer (valaddr, len, byte_order);
+	    else
+	      result = extract_signed_integer (valaddr, len, byte_order);
+	  }
+	if (code == TYPE_CODE_RANGE)
+	  result += type->bounds ()->bias;
+	return result;
+      }
 
     case TYPE_CODE_FLT:
     case TYPE_CODE_DECFLOAT:
@@ -2820,7 +2866,7 @@ value_static_field (struct type *type, int fieldno)
   switch (TYPE_FIELD_LOC_KIND (type, fieldno))
     {
     case FIELD_LOC_KIND_PHYSADDR:
-      retval = value_at_lazy (TYPE_FIELD_TYPE (type, fieldno),
+      retval = value_at_lazy (type->field (fieldno).type (),
 			      TYPE_FIELD_STATIC_PHYSADDR (type, fieldno));
       break;
     case FIELD_LOC_KIND_PHYSNAME:
@@ -2835,7 +2881,7 @@ value_static_field (struct type *type, int fieldno)
 	     reported as non-debuggable symbols.  */
 	  struct bound_minimal_symbol msym
 	    = lookup_minimal_symbol (phys_name, NULL, NULL);
-	  struct type *field_type = TYPE_FIELD_TYPE (type, fieldno);
+	  struct type *field_type = type->field (fieldno).type ();
 
 	  if (!msym.minsym)
 	    retval = allocate_optimized_out_value (field_type);
@@ -2888,7 +2934,7 @@ value_primitive_field (struct value *arg1, LONGEST offset,
   int unit_size = gdbarch_addressable_memory_unit_size (arch);
 
   arg_type = check_typedef (arg_type);
-  type = TYPE_FIELD_TYPE (arg_type, fieldno);
+  type = arg_type->field (fieldno).type ();
 
   /* Call check_typedef on our type to make sure that, if TYPE
      is a TYPE_CODE_TYPEDEF, its length is set to the length
@@ -3050,7 +3096,7 @@ value_fn_field (struct value **arg1p, struct fn_field *f,
       /* The minimal symbol might point to a function descriptor;
 	 resolve it to the actual code address instead.  */
       struct objfile *objfile = msym.objfile;
-      struct gdbarch *gdbarch = get_objfile_arch (objfile);
+      struct gdbarch *gdbarch = objfile->arch ();
 
       set_value_address (v,
 	gdbarch_convert_from_func_ptr_addr
@@ -3072,27 +3118,13 @@ value_fn_field (struct value **arg1p, struct fn_field *f,
 
 
 
-/* Unpack a bitfield of the specified FIELD_TYPE, from the object at
-   VALADDR, and store the result in *RESULT.
-   The bitfield starts at BITPOS bits and contains BITSIZE bits; if
-   BITSIZE is zero, then the length is taken from FIELD_TYPE.
+/* See value.h.  */
 
-   Extracting bits depends on endianness of the machine.  Compute the
-   number of least significant bits to discard.  For big endian machines,
-   we compute the total number of bits in the anonymous object, subtract
-   off the bit count from the MSB of the object to the MSB of the
-   bitfield, then the size of the bitfield, which leaves the LSB discard
-   count.  For little endian machines, the discard count is simply the
-   number of bits from the LSB of the anonymous object to the LSB of the
-   bitfield.
-
-   If the field is signed, we also do sign extension.  */
-
-static LONGEST
+LONGEST
 unpack_bits_as_long (struct type *field_type, const gdb_byte *valaddr,
 		     LONGEST bitpos, LONGEST bitsize)
 {
-  enum bfd_endian byte_order = gdbarch_byte_order (get_type_arch (field_type));
+  enum bfd_endian byte_order = type_byte_order (field_type);
   ULONGEST val;
   ULONGEST valmask;
   int lsbcount;
@@ -3117,7 +3149,7 @@ unpack_bits_as_long (struct type *field_type, const gdb_byte *valaddr,
 
   /* Extract bits.  See comment above.  */
 
-  if (gdbarch_bits_big_endian (get_type_arch (field_type)))
+  if (byte_order == BFD_ENDIAN_BIG)
     lsbcount = (bytes_read * 8 - bitpos % 8 - bitsize);
   else
     lsbcount = (bitpos % 8);
@@ -3130,7 +3162,7 @@ unpack_bits_as_long (struct type *field_type, const gdb_byte *valaddr,
     {
       valmask = (((ULONGEST) 1) << bitsize) - 1;
       val &= valmask;
-      if (!TYPE_UNSIGNED (field_type))
+      if (!field_type->is_unsigned ())
 	{
 	  if (val & (valmask ^ (valmask >> 1)))
 	    {
@@ -3154,7 +3186,7 @@ unpack_value_field_as_long (struct type *type, const gdb_byte *valaddr,
 {
   int bitpos = TYPE_FIELD_BITPOS (type, fieldno);
   int bitsize = TYPE_FIELD_BITSIZE (type, fieldno);
-  struct type *field_type = TYPE_FIELD_TYPE (type, fieldno);
+  struct type *field_type = type->field (fieldno).type ();
   int bit_offset;
 
   gdb_assert (val != NULL);
@@ -3177,7 +3209,7 @@ unpack_field_as_long (struct type *type, const gdb_byte *valaddr, int fieldno)
 {
   int bitpos = TYPE_FIELD_BITPOS (type, fieldno);
   int bitsize = TYPE_FIELD_BITSIZE (type, fieldno);
-  struct type *field_type = TYPE_FIELD_TYPE (type, fieldno);
+  struct type *field_type = type->field (fieldno).type ();
 
   return unpack_bits_as_long (field_type, valaddr, bitpos, bitsize);
 }
@@ -3201,7 +3233,7 @@ unpack_value_bitfield (struct value *dest_val,
   int dst_bit_offset;
   struct type *field_type = value_type (dest_val);
 
-  byte_order = gdbarch_byte_order (get_type_arch (field_type));
+  byte_order = type_byte_order (field_type);
 
   /* First, unpack and sign extend the bitfield as if it was wholly
      valid.  Optimized out/unavailable bits are read as zero, but
@@ -3242,7 +3274,7 @@ value_field_bitfield (struct type *type, int fieldno,
 {
   int bitpos = TYPE_FIELD_BITPOS (type, fieldno);
   int bitsize = TYPE_FIELD_BITSIZE (type, fieldno);
-  struct value *res_val = allocate_value (TYPE_FIELD_TYPE (type, fieldno));
+  struct value *res_val = allocate_value (type->field (fieldno).type ());
 
   unpack_value_bitfield (res_val, bitpos, bitsize,
 			 valaddr, embedded_offset, val);
@@ -3261,7 +3293,7 @@ void
 modify_field (struct type *type, gdb_byte *addr,
 	      LONGEST fieldval, LONGEST bitpos, LONGEST bitsize)
 {
-  enum bfd_endian byte_order = gdbarch_byte_order (get_type_arch (type));
+  enum bfd_endian byte_order = type_byte_order (type);
   ULONGEST oword;
   ULONGEST mask = (ULONGEST) -1 >> (8 * sizeof (ULONGEST) - bitsize);
   LONGEST bytesize;
@@ -3293,7 +3325,7 @@ modify_field (struct type *type, gdb_byte *addr,
   oword = extract_unsigned_integer (addr, bytesize, byte_order);
 
   /* Shifting for bit field depends on endianness of the target machine.  */
-  if (gdbarch_bits_big_endian (get_type_arch (type)))
+  if (byte_order == BFD_ENDIAN_BIG)
     bitpos = bytesize * 8 - bitpos - bitsize;
 
   oword &= ~(mask << bitpos);
@@ -3307,21 +3339,30 @@ modify_field (struct type *type, gdb_byte *addr,
 void
 pack_long (gdb_byte *buf, struct type *type, LONGEST num)
 {
-  enum bfd_endian byte_order = gdbarch_byte_order (get_type_arch (type));
+  enum bfd_endian byte_order = type_byte_order (type);
   LONGEST len;
 
   type = check_typedef (type);
   len = TYPE_LENGTH (type);
 
-  switch (TYPE_CODE (type))
+  switch (type->code ())
     {
+    case TYPE_CODE_RANGE:
+      num -= type->bounds ()->bias;
+      /* Fall through.  */
     case TYPE_CODE_INT:
     case TYPE_CODE_CHAR:
     case TYPE_CODE_ENUM:
     case TYPE_CODE_FLAGS:
     case TYPE_CODE_BOOL:
-    case TYPE_CODE_RANGE:
     case TYPE_CODE_MEMBERPTR:
+      if (type->bit_size_differs_p ())
+	{
+	  unsigned bit_off = type->bit_offset ();
+	  unsigned bit_size = type->bit_size ();
+	  num &= ((ULONGEST) 1 << bit_size) - 1;
+	  num <<= bit_off;
+	}
       store_signed_integer (buf, len, byte_order, num);
       break;
 
@@ -3338,7 +3379,7 @@ pack_long (gdb_byte *buf, struct type *type, LONGEST num)
 
     default:
       error (_("Unexpected type (%d) encountered for integer constant."),
-	     TYPE_CODE (type));
+	     type->code ());
     }
 }
 
@@ -3353,9 +3394,9 @@ pack_unsigned_long (gdb_byte *buf, struct type *type, ULONGEST num)
 
   type = check_typedef (type);
   len = TYPE_LENGTH (type);
-  byte_order = gdbarch_byte_order (get_type_arch (type));
+  byte_order = type_byte_order (type);
 
-  switch (TYPE_CODE (type))
+  switch (type->code ())
     {
     case TYPE_CODE_INT:
     case TYPE_CODE_CHAR:
@@ -3364,6 +3405,13 @@ pack_unsigned_long (gdb_byte *buf, struct type *type, ULONGEST num)
     case TYPE_CODE_BOOL:
     case TYPE_CODE_RANGE:
     case TYPE_CODE_MEMBERPTR:
+      if (type->bit_size_differs_p ())
+	{
+	  unsigned bit_off = type->bit_offset ();
+	  unsigned bit_size = type->bit_size ();
+	  num &= ((ULONGEST) 1 << bit_size) - 1;
+	  num <<= bit_off;
+	}
       store_unsigned_integer (buf, len, byte_order, num);
       break;
 
@@ -3381,7 +3429,7 @@ pack_unsigned_long (gdb_byte *buf, struct type *type, ULONGEST num)
     default:
       error (_("Unexpected type (%d) encountered "
 	       "for unsigned integer constant."),
-	     TYPE_CODE (type));
+	     type->code ());
     }
 }
 
@@ -3432,7 +3480,7 @@ struct value *
 value_from_host_double (struct type *type, double d)
 {
   struct value *value = allocate_value (type);
-  gdb_assert (TYPE_CODE (type) == TYPE_CODE_FLT);
+  gdb_assert (type->code () == TYPE_CODE_FLT);
   target_float_from_host_double (value_contents_raw (value),
 				 value_type (value), d);
   return value;
@@ -3471,7 +3519,10 @@ value_from_contents_and_address (struct type *type,
 				 const gdb_byte *valaddr,
 				 CORE_ADDR address)
 {
-  struct type *resolved_type = resolve_dynamic_type (type, valaddr, address);
+  gdb::array_view<const gdb_byte> view;
+  if (valaddr != nullptr)
+    view = gdb::make_array_view (valaddr, TYPE_LENGTH (type));
+  struct type *resolved_type = resolve_dynamic_type (type, view, address);
   struct type *resolved_type_no_typedef = check_typedef (resolved_type);
   struct value *v;
 
@@ -3609,10 +3660,20 @@ coerce_ref_if_computed (const struct value *arg)
 struct value *
 readjust_indirect_value_type (struct value *value, struct type *enc_type,
 			      const struct type *original_type,
-			      const struct value *original_value)
+			      struct value *original_value,
+			      CORE_ADDR original_value_address)
 {
+  gdb_assert (original_type->code () == TYPE_CODE_PTR
+	      || TYPE_IS_REFERENCE (original_type));
+
+  struct type *original_target_type = TYPE_TARGET_TYPE (original_type);
+  gdb::array_view<const gdb_byte> view;
+  struct type *resolved_original_target_type
+    = resolve_dynamic_type (original_target_type, view,
+			    original_value_address);
+
   /* Re-adjust type.  */
-  deprecated_set_value_type (value, TYPE_TARGET_TYPE (original_type));
+  deprecated_set_value_type (value, resolved_original_target_type);
 
   /* Add embedding info.  */
   set_value_enclosing_type (value, enc_type);
@@ -3639,12 +3700,11 @@ coerce_ref (struct value *arg)
   enc_type = check_typedef (value_enclosing_type (arg));
   enc_type = TYPE_TARGET_TYPE (enc_type);
 
-  retval = value_at_lazy (enc_type,
-                          unpack_pointer (value_type (arg),
-                                          value_contents (arg)));
+  CORE_ADDR addr = unpack_pointer (value_type (arg), value_contents (arg));
+  retval = value_at_lazy (enc_type, addr);
   enc_type = value_type (retval);
-  return readjust_indirect_value_type (retval, enc_type,
-                                       value_type_arg_tmp, arg);
+  return readjust_indirect_value_type (retval, enc_type, value_type_arg_tmp,
+				       arg, addr);
 }
 
 struct value *
@@ -3655,10 +3715,10 @@ coerce_array (struct value *arg)
   arg = coerce_ref (arg);
   type = check_typedef (value_type (arg));
 
-  switch (TYPE_CODE (type))
+  switch (type->code ())
     {
     case TYPE_CODE_ARRAY:
-      if (!TYPE_VECTOR (type) && current_language->c_style_arrays)
+      if (!type->is_vector () && current_language->c_style_arrays_p ())
 	arg = value_coerce_array (arg);
       break;
     case TYPE_CODE_FUNC:
@@ -3676,7 +3736,7 @@ enum return_value_convention
 struct_return_convention (struct gdbarch *gdbarch,
 			  struct value *function, struct type *value_type)
 {
-  enum type_code code = TYPE_CODE (value_type);
+  enum type_code code = value_type->code ();
 
   if (code == TYPE_CODE_ERROR)
     error (_("Function return type unknown."));
@@ -3694,7 +3754,7 @@ int
 using_struct_return (struct gdbarch *gdbarch,
 		     struct value *function, struct type *value_type)
 {
-  if (TYPE_CODE (value_type) == TYPE_CODE_VOID)
+  if (value_type->code () == TYPE_CODE_VOID)
     /* A void return value is never in memory.  See also corresponding
        code in "print_return_value".  */
     return 0;
@@ -3922,12 +3982,12 @@ isvoid_internal_fn (struct gdbarch *gdbarch,
   if (argc != 1)
     error (_("You must provide one argument for $_isvoid."));
 
-  ret = TYPE_CODE (value_type (argv[0])) == TYPE_CODE_VOID;
+  ret = value_type (argv[0])->code () == TYPE_CODE_VOID;
 
   return value_from_longest (builtin_type (gdbarch)->builtin_int, ret);
 }
 
-/* Implementation of the convenience function $_cimag.  Extracts the
+/* Implementation of the convenience function $_creal.  Extracts the
    real part from a complex number.  */
 
 static struct value *
@@ -3940,9 +4000,9 @@ creal_internal_fn (struct gdbarch *gdbarch,
 
   value *cval = argv[0];
   type *ctype = check_typedef (value_type (cval));
-  if (TYPE_CODE (ctype) != TYPE_CODE_COMPLEX)
+  if (ctype->code () != TYPE_CODE_COMPLEX)
     error (_("expected a complex number"));
-  return value_from_component (cval, TYPE_TARGET_TYPE (ctype), 0);
+  return value_real_part (cval);
 }
 
 /* Implementation of the convenience function $_cimag.  Extracts the
@@ -3959,10 +4019,9 @@ cimag_internal_fn (struct gdbarch *gdbarch,
 
   value *cval = argv[0];
   type *ctype = check_typedef (value_type (cval));
-  if (TYPE_CODE (ctype) != TYPE_CODE_COMPLEX)
+  if (ctype->code () != TYPE_CODE_COMPLEX)
     error (_("expected a complex number"));
-  return value_from_component (cval, TYPE_TARGET_TYPE (ctype),
-			       TYPE_LENGTH (TYPE_TARGET_TYPE (ctype)));
+  return value_imaginary_part (cval);
 }
 
 #if GDB_SELF_TEST
@@ -4107,8 +4166,9 @@ test_insert_into_bit_range_vector ()
 } /* namespace selftests */
 #endif /* GDB_SELF_TEST */
 
+void _initialize_values ();
 void
-_initialize_values (void)
+_initialize_values ()
 {
   add_cmd ("convenience", no_class, show_convenience, _("\
 Debugger convenience (\"$foo\") variables and functions.\n\

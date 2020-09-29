@@ -1,5 +1,5 @@
 /* This file is tc-arm.h
-   Copyright (C) 1994-2019 Free Software Foundation, Inc.
+   Copyright (C) 1994-2020 Free Software Foundation, Inc.
    Contributed by Richard Earnshaw (rwe@pegasus.esprit.ec.org)
 	Modified by David Taylor (dtaylor@armltd.co.uk)
 
@@ -340,7 +340,6 @@ struct arm_segment_info_type
 
 #define MD_PCREL_FROM_SECTION(F,S) md_pcrel_from_section(F,S)
 
-extern long md_pcrel_from_section (struct fix *, segT);
 extern void arm_frag_align_code (int, int);
 extern void arm_validate_fix (struct fix *);
 extern const char * elf32_arm_target_format (void);
@@ -385,3 +384,7 @@ extern char arm_line_separator_chars[];
 
 #define TC_EQUAL_IN_INSN(c, s) arm_tc_equal_in_insn ((c), (s))
 extern bfd_boolean arm_tc_equal_in_insn (int, char *);
+
+#define TC_LARGEST_EXPONENT_IS_NORMAL(PRECISION) \
+	arm_is_largest_exponent_ok ((PRECISION))
+int arm_is_largest_exponent_ok (int precision);

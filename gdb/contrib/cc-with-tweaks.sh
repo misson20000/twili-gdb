@@ -2,7 +2,7 @@
 # Wrapper around gcc to tweak the output in various ways when running
 # the testsuite.
 
-# Copyright (C) 2010-2019 Free Software Foundation, Inc.
+# Copyright (C) 2010-2020 Free Software Foundation, Inc.
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation; either version 3 of the License, or
@@ -144,13 +144,6 @@ then
     exit $?
 fi
 
-index_file="${output_file}.gdb-index"
-if [ "$want_index" = true ] && [ -f "$index_file" ]
-then
-    echo "$myname: Index file $index_file exists, won't clobber." >&2
-    exit 1
-fi
-
 output_dir="${output_file%/*}"
 [ "$output_dir" = "$output_file" ] && output_dir="."
 
@@ -163,6 +156,12 @@ then
     exit 1
 fi
 
+get_tmpdir ()
+{
+    tmpdir=$(dirname "$output_file")/.tmp
+    mkdir -p "$tmpdir"
+}
+
 if [ "$want_objcopy_compress" = true ]; then
     $OBJCOPY --compress-debug-sections "$output_file"
     rc=$?
@@ -170,12 +169,16 @@ if [ "$want_objcopy_compress" = true ]; then
 fi
 
 if [ "$want_index" = true ]; then
+    get_tmpdir
+    mv "$output_file" "$tmpdir"
+    tmpfile="$tmpdir/$(basename $output_file)"
     # Filter out these messages which would stop dejagnu testcase run:
     # echo "$myname: No index was created for $file" 1>&2
     # echo "$myname: [Was there no debuginfo? Was there already an index?]" 1>&2
-    GDB=$GDB $GDB_ADD_INDEX $index_options "$output_file" 2>&1 \
+    GDB=$GDB $GDB_ADD_INDEX $index_options "$tmpfile" 2>&1 \
 	| grep -v "^${GDB_ADD_INDEX##*/}: " >&2
     rc=${PIPESTATUS[0]}
+    mv "$tmpfile" "$output_file"
     [ $rc != 0 ] && exit $rc
 fi
 
@@ -202,17 +205,19 @@ if [ "$want_dwz" = true ]; then
 	;;
     esac
 elif [ "$want_multi" = true ]; then
+    get_tmpdir
+    dwz_file=$tmpdir/$(basename "$output_file").dwz
     # Remove the dwz output file if it exists, so we don't mistake it for a
     # new file in case dwz fails.
-    rm -f "${output_file}.dwz"
+    rm -f "$dwz_file"
 
     cp $output_file ${output_file}.alt
-    $DWZ -m ${output_file}.dwz "$output_file" ${output_file}.alt > /dev/null
+    $DWZ -m "$dwz_file" "$output_file" ${output_file}.alt > /dev/null
     rm -f ${output_file}.alt
 
     # Validate dwz's work by checking if the expected output file exists.
-    if [ ! -f "${output_file}.dwz" ]; then
-	echo "$myname: dwz file ${output_file}.dwz missing."
+    if [ ! -f "$dwz_file" ]; then
+	echo "$myname: dwz file $dwz_file missing."
 	exit 1
     fi
 fi
@@ -229,5 +234,4 @@ if [ "$want_dwp" = true ]; then
     fi
 fi
 
-rm -f "$index_file"
 exit $rc

@@ -1,5 +1,5 @@
 /* Annotation routines for GDB.
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -28,6 +28,7 @@
 #include "top.h"
 #include "source.h"
 #include "objfiles.h"
+#include "source-cache.h"
 
 
 /* Prototypes for local functions.  */
@@ -434,24 +435,33 @@ annotate_source (const char *filename, int line, int character, int mid,
 
 /* See annotate.h.  */
 
-void
+bool
 annotate_source_line (struct symtab *s, int line, int mid_statement,
 		      CORE_ADDR pc)
 {
   if (annotation_level > 0)
     {
-      if (s->line_charpos == nullptr)
-	open_source_file_with_line_charpos (s);
-      if (s->fullname == nullptr)
-	return;
-      /* Don't index off the end of the line_charpos array.  */
-      if (line > s->nlines)
-	return;
+      const std::vector<off_t> *offsets;
+      if (!g_source_cache.get_line_charpos (s, &offsets))
+	return false;
+      if (line > offsets->size ())
+	return false;
 
-      annotate_source (s->fullname, line, s->line_charpos[line - 1],
-		       mid_statement, get_objfile_arch (SYMTAB_OBJFILE (s)),
+      annotate_source (s->fullname, line, (int) (*offsets)[line - 1],
+		       mid_statement, SYMTAB_OBJFILE (s)->arch (),
 		       pc);
+
+      /* Update the current symtab and line.  */
+      symtab_and_line sal;
+      sal.pspace = SYMTAB_PSPACE (s);
+      sal.symtab = s;
+      sal.line = line;
+      set_current_source_symtab_and_line (sal);
+
+      return true;
     }
+
+  return false;
 }
 
 
@@ -613,8 +623,9 @@ breakpoint_changed (struct breakpoint *b)
   annotate_breakpoints_invalid ();
 }
 
+void _initialize_annotate ();
 void
-_initialize_annotate (void)
+_initialize_annotate ()
 {
   gdb::observers::breakpoint_created.attach (breakpoint_changed);
   gdb::observers::breakpoint_deleted.attach (breakpoint_changed);

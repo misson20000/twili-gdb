@@ -1,5 +1,5 @@
 /* MI Command Set - MI output generating routines for GDB.
-   Copyright (C) 2000-2019 Free Software Foundation, Inc.
+   Copyright (C) 2000-2020 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions (a Red Hat company).
 
    This file is part of GDB.
@@ -40,6 +40,11 @@ public:
   /* Return the version number of the current MI.  */
   int version ();
 
+  bool can_emit_style_escape () const override
+  {
+    return false;
+  }
+
 protected:
 
   virtual void do_table_begin (int nbrofcols, int nr_rows, const char *tblid)
@@ -52,20 +57,25 @@ protected:
 
   virtual void do_begin (ui_out_type type, const char *id) override;
   virtual void do_end (ui_out_type type) override;
-  virtual void do_field_int (int fldno, int width, ui_align align,
-			  const char *fldname, int value) override;
+  virtual void do_field_signed (int fldno, int width, ui_align align,
+				const char *fldname, LONGEST value) override;
+  virtual void do_field_unsigned (int fldno, int width, ui_align align,
+				  const char *fldname, ULONGEST value)
+    override;
   virtual void do_field_skip (int fldno, int width, ui_align align,
 			   const char *fldname) override;
   virtual void do_field_string (int fldno, int width, ui_align align,
 				const char *fldname, const char *string,
-				ui_out_style_kind style) override;
+				const ui_file_style &style) override;
   virtual void do_field_fmt (int fldno, int width, ui_align align,
-			  const char *fldname, const char *format, va_list args)
-    override ATTRIBUTE_PRINTF (6,0);
+			     const char *fldname, const ui_file_style &style,
+			     const char *format, va_list args)
+    override ATTRIBUTE_PRINTF (7,0);
   virtual void do_spaces (int numspaces) override;
   virtual void do_text (const char *string) override;
-  virtual void do_message (const char *format, va_list args) override
-    ATTRIBUTE_PRINTF (2,0);
+  virtual void do_message (const ui_file_style &style,
+			   const char *format, va_list args) override
+    ATTRIBUTE_PRINTF (3,0);
   virtual void do_wrap_hint (const char *identstring) override;
   virtual void do_flush () override;
   virtual void do_redirect (struct ui_file *outstream) override;

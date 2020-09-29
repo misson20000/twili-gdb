@@ -1,6 +1,6 @@
 /* Linux namespaces(7) support.
 
-   Copyright (C) 2015-2019 Free Software Foundation, Inc.
+   Copyright (C) 2015-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,21 +17,21 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "common/common-defs.h"
+#include "gdbsupport/common-defs.h"
 #include "nat/linux-namespaces.h"
-#include "common/filestuff.h"
+#include "gdbsupport/filestuff.h"
 #include <fcntl.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
-#include "common/gdb_wait.h"
+#include "gdbsupport/gdb_wait.h"
 #include <signal.h>
 #include <sched.h>
-#include "common/scope-exit.h"
+#include "gdbsupport/scope-exit.h"
 
 /* See nat/linux-namespaces.h.  */
-int debug_linux_namespaces;
+bool debug_linux_namespaces;
 
 /* Handle systems without fork.  */
 
@@ -562,7 +562,7 @@ mnsh_main (int sock)
   while (1)
     {
       enum mnsh_msg_type type;
-      int fd, int1, int2;
+      int fd = -1, int1, int2;
       char buf[PATH_MAX];
       ssize_t size, response = -1;
 

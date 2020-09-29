@@ -1,6 +1,6 @@
 /* Code for native debugging support for GNU/Linux (LWP layer).
 
-   Copyright (C) 2000-2019 Free Software Foundation, Inc.
+   Copyright (C) 2000-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,7 +20,7 @@
 #ifndef NAT_LINUX_NAT_H
 #define NAT_LINUX_NAT_H
 
-#include "common/function-view.h"
+#include "gdbsupport/function-view.h"
 #include "target/waitstatus.h"
 
 struct lwp_info;

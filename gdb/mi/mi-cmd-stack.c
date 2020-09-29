@@ -1,5 +1,5 @@
 /* MI Command Set - stack commands.
-   Copyright (C) 2000-2019 Free Software Foundation, Inc.
+   Copyright (C) 2000-2020 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions (a Red Hat company).
 
    This file is part of GDB.
@@ -34,7 +34,7 @@
 #include "extension.h"
 #include <ctype.h>
 #include "mi-parse.h"
-#include "common/gdb_optional.h"
+#include "gdbsupport/gdb_optional.h"
 #include "safe-ctype.h"
 
 enum what_to_list { locals, arguments, all };
@@ -204,7 +204,7 @@ mi_cmd_stack_info_depth (const char *command, char **argv, int argc)
        i++, fi = get_prev_frame (fi))
     QUIT;
 
-  current_uiout->field_int ("depth", i);
+  current_uiout->field_signed ("depth", i);
 }
 
 /* Print a list of the locals for the current frame.  With argument of
@@ -391,7 +391,7 @@ mi_cmd_stack_list_args (const char *command, char **argv, int argc)
 	{
 	  QUIT;
 	  ui_out_emit_tuple tuple_emitter (uiout, "frame");
-	  uiout->field_int ("level", i);
+	  uiout->field_signed ("level", i);
 	  list_args_or_locals (user_frame_print_options,
 			       arguments, print_values, fi, skip_unavailable);
 	}
@@ -515,13 +515,13 @@ list_arg_or_local (const struct frame_arg *arg, enum what_to_list what,
 
   string_file stb;
 
-  stb.puts (SYMBOL_PRINT_NAME (arg->sym));
+  stb.puts (arg->sym->print_name ());
   if (arg->entry_kind == print_entry_values_only)
     stb.puts ("@entry");
   uiout->field_stream ("name", stb);
 
   if (what == all && SYMBOL_IS_ARGUMENT (arg->sym))
-    uiout->field_int ("arg", 1);
+    uiout->field_signed ("arg", 1);
 
   if (values == PRINT_SIMPLE_VALUES)
     {
@@ -533,7 +533,7 @@ list_arg_or_local (const struct frame_arg *arg, enum what_to_list what,
   if (arg->val || arg->error)
     {
       if (arg->error)
-	stb.printf (_("<error reading variable: %s>"), arg->error);
+	stb.printf (_("<error reading variable: %s>"), arg->error.get ());
       else
 	{
 	  try
@@ -543,7 +543,7 @@ list_arg_or_local (const struct frame_arg *arg, enum what_to_list what,
 	      get_no_prettyformat_print_options (&opts);
 	      opts.deref_ref = 1;
 	      common_val_print (arg->val, &stb, 0, &opts,
-				language_def (SYMBOL_LANGUAGE (arg->sym)));
+				language_def (arg->sym->language ()));
 	    }
 	  catch (const gdb_exception_error &except)
 	    {
@@ -634,17 +634,14 @@ list_args_or_locals (const frame_print_options &fp_opts,
 	      struct frame_arg arg, entryarg;
 
 	      if (SYMBOL_IS_ARGUMENT (sym))
-		sym2 = lookup_symbol (SYMBOL_LINKAGE_NAME (sym),
-				      block, VAR_DOMAIN,
-				      NULL).symbol;
+		sym2 = lookup_symbol_search_name (sym->search_name (),
+						  block, VAR_DOMAIN).symbol;
 	      else
 		sym2 = sym;
 	      gdb_assert (sym2 != NULL);
 
-	      memset (&arg, 0, sizeof (arg));
 	      arg.sym = sym2;
 	      arg.entry_kind = print_entry_values_no;
-	      memset (&entryarg, 0, sizeof (entryarg));
 	      entryarg.sym = sym2;
 	      entryarg.entry_kind = print_entry_values_no;
 
@@ -652,9 +649,9 @@ list_args_or_locals (const frame_print_options &fp_opts,
 		{
 		case PRINT_SIMPLE_VALUES:
 		  type = check_typedef (sym2->type);
-		  if (TYPE_CODE (type) != TYPE_CODE_ARRAY
-		      && TYPE_CODE (type) != TYPE_CODE_STRUCT
-		      && TYPE_CODE (type) != TYPE_CODE_UNION)
+		  if (type->code () != TYPE_CODE_ARRAY
+		      && type->code () != TYPE_CODE_STRUCT
+		      && type->code () != TYPE_CODE_UNION)
 		    {
 		case PRINT_ALL_VALUES:
 		  if (SYMBOL_IS_ARGUMENT (sym))
@@ -669,8 +666,6 @@ list_args_or_locals (const frame_print_options &fp_opts,
 		list_arg_or_local (&arg, what, values, skip_unavailable);
 	      if (entryarg.entry_kind != print_entry_values_no)
 		list_arg_or_local (&entryarg, what, values, skip_unavailable);
-	      xfree (arg.error);
-	      xfree (entryarg.error);
 	    }
 	}
 

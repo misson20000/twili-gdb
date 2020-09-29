@@ -1,6 +1,6 @@
 /* Scheme interface to lazy strings.
 
-   Copyright (C) 2010-2019 Free Software Foundation, Inc.
+   Copyright (C) 2010-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -201,7 +201,7 @@ lsscm_elt_type (lazy_string_smob *ls_smob)
 
   realtype = check_typedef (type);
 
-  switch (TYPE_CODE (realtype))
+  switch (realtype->code ())
     {
     case TYPE_CODE_PTR:
     case TYPE_CODE_ARRAY:
@@ -314,7 +314,7 @@ lsscm_safe_lazy_string_to_value (SCM string, int arg_pos,
       struct type *type = tyscm_scm_to_type (ls_smob->type);
       struct type *realtype = check_typedef (type);
 
-      switch (TYPE_CODE (realtype))
+      switch (realtype->code ())
 	{
 	case TYPE_CODE_PTR:
 	  /* If a length is specified we need to convert this to an array

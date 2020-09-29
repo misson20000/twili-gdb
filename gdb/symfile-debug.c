@@ -1,6 +1,6 @@
 /* Debug logging for the symbol file functions for the GNU debugger, GDB.
 
-   Copyright (C) 2013-2019 Free Software Foundation, Inc.
+   Copyright (C) 2013-2020 Free Software Foundation, Inc.
 
    Contributed by Cygnus Support, using pieces from other GDB modules.
 
@@ -48,8 +48,8 @@ struct debug_sym_fns_data
 static const struct objfile_key<debug_sym_fns_data>
   symfile_debug_objfile_data_key;
 
-/* If non-zero all calls to the symfile functions are logged.  */
-static int debug_symfile = 0;
+/* If true all calls to the symfile functions are logged.  */
+static bool debug_symfile = false;
 
 /* Return non-zero if symfile debug logging is installed.  */
 
@@ -140,8 +140,8 @@ debug_qf_map_symtabs_matching_filename
 }
 
 static struct compunit_symtab *
-debug_qf_lookup_symbol (struct objfile *objfile, int kind, const char *name,
-			domain_enum domain)
+debug_qf_lookup_symbol (struct objfile *objfile, block_enum kind,
+			const char *name, domain_enum domain)
 {
   const struct debug_sym_fns_data *debug_data
     = symfile_debug_objfile_data_key.get (objfile);
@@ -228,31 +228,25 @@ debug_qf_expand_symtabs_with_fullname (struct objfile *objfile,
 }
 
 static void
-debug_qf_map_matching_symbols (struct objfile *objfile,
-			       const char *name, domain_enum domain,
-			       int global,
-			       int (*callback) (const struct block *,
-						struct symbol *, void *),
-			       void *data,
-			       symbol_name_match_type match,
-			       symbol_compare_ftype *ordered_compare)
+debug_qf_map_matching_symbols
+  (struct objfile *objfile,
+   const lookup_name_info &name, domain_enum domain,
+   int global,
+   gdb::function_view<symbol_found_callback_ftype> callback,
+   symbol_compare_ftype *ordered_compare)
 {
   const struct debug_sym_fns_data *debug_data
     = symfile_debug_objfile_data_key.get (objfile);
 
   fprintf_filtered (gdb_stdlog,
-		    "qf->map_matching_symbols (%s, \"%s\", %s, %d, %s, %s, %s, %s)\n",
-		    objfile_debug_name (objfile), name,
+		    "qf->map_matching_symbols (%s, %s, %d, %s)\n",
+		    objfile_debug_name (objfile),
 		    domain_name (domain), global,
-		    host_address_to_string (callback),
-		    host_address_to_string (data),
-		    plongest ((LONGEST) match),
 		    host_address_to_string (ordered_compare));
 
   debug_data->real_sf->qf->map_matching_symbols (objfile, name,
 						 domain, global,
-						 callback, data,
-						 match,
+						 callback,
 						 ordered_compare);
 }
 
@@ -260,7 +254,7 @@ static void
 debug_qf_expand_symtabs_matching
   (struct objfile *objfile,
    gdb::function_view<expand_symtabs_file_matcher_ftype> file_matcher,
-   const lookup_name_info &lookup_name,
+   const lookup_name_info *lookup_name,
    gdb::function_view<expand_symtabs_symbol_matcher_ftype> symbol_matcher,
    gdb::function_view<expand_symtabs_exp_notify_ftype> expansion_notify,
    enum search_domain kind)
@@ -368,6 +362,7 @@ static const struct quick_symbol_functions debug_sym_quick_functions =
   debug_qf_forget_cached_source_info,
   debug_qf_map_symtabs_matching_filename,
   debug_qf_lookup_symbol,
+  NULL,
   debug_qf_print_stats,
   debug_qf_dump,
   debug_qf_expand_symtabs_for_function,
@@ -480,7 +475,7 @@ debug_sym_offsets (struct objfile *objfile,
   debug_data->real_sf->sym_offsets (objfile, info);
 }
 
-static struct symfile_segment_data *
+static symfile_segment_data_up
 debug_sym_segments (bfd *abfd)
 {
   /* This API function is annoying, it doesn't take a "this" pointer.
@@ -626,9 +621,7 @@ objfile_set_sym_fns (struct objfile *objfile, const struct sym_fns *sf)
 static void
 set_debug_symfile (const char *args, int from_tty, struct cmd_list_element *c)
 {
-  struct program_space *pspace;
-
-  ALL_PSPACES (pspace)
+  for (struct program_space *pspace : program_spaces)
     for (objfile *objfile : pspace->objfiles ())
       {
 	if (debug_symfile)
@@ -651,8 +644,9 @@ show_debug_symfile (struct ui_file *file, int from_tty,
   fprintf_filtered (file, _("Symfile debugging is %s.\n"), value);
 }
 
+void _initialize_symfile_debug ();
 void
-_initialize_symfile_debug (void)
+_initialize_symfile_debug ()
 {
   add_setshow_boolean_cmd ("symfile", no_class, &debug_symfile, _("\
 Set debugging of the symfile functions."), _("\

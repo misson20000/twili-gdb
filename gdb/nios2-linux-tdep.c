@@ -1,5 +1,5 @@
 /* Target-dependent code for GNU/Linux on Nios II.
-   Copyright (C) 2012-2019 Free Software Foundation, Inc.
+   Copyright (C) 2012-2020 Free Software Foundation, Inc.
    Contributed by Mentor Graphics, Inc.
 
    This file is part of GDB.
@@ -29,6 +29,7 @@
 #include "linux-tdep.h"
 #include "glibc-tdep.h"
 #include "nios2-tdep.h"
+#include "gdbarch.h"
 
 /* Core file and register set support.  */
 
@@ -247,8 +248,9 @@ nios2_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   tdep->jb_pc = 10;
 }
 
+void _initialize_nios2_linux_tdep ();
 void
-_initialize_nios2_linux_tdep (void)
+_initialize_nios2_linux_tdep ()
 {
 
   const struct bfd_arch_info *arch_info;

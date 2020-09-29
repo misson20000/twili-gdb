@@ -1,6 +1,6 @@
 /* Target-dependent code for FreeBSD, architecture-independent.
 
-   Copyright (C) 2002-2019 Free Software Foundation, Inc.
+   Copyright (C) 2002-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -21,6 +21,7 @@
 #include "auxv.h"
 #include "gdbcore.h"
 #include "inferior.h"
+#include "objfiles.h"
 #include "regcache.h"
 #include "regset.h"
 #include "gdbthread.h"
@@ -101,7 +102,7 @@ enum
    all architectures.
 
    Note that FreeBSD 7.0 used an older version of this structure
-   (struct kinfo_ovmentry), but the NT_FREEBSD_PROCSTAT_VMMAP core
+   (struct kinfo_vmentry), but the NT_FREEBSD_PROCSTAT_VMMAP core
    dump note wasn't introduced until FreeBSD 9.2.  As a result, the
    core dump note has always used the 7.1 and later structure
    format.  */
@@ -502,10 +503,10 @@ fbsd_core_thread_name (struct gdbarch *gdbarch, struct thread_info *thr)
       thread_section_name section_name (".thrmisc", thr->ptid);
 
       section = bfd_get_section_by_name (core_bfd, section_name.c_str ());
-      if (section != NULL && bfd_section_size (core_bfd, section) > 0)
+      if (section != NULL && bfd_section_size (section) > 0)
 	{
 	  /* Truncate the name if it is longer than "buf".  */
-	  size = bfd_section_size (core_bfd, section);
+	  size = bfd_section_size (section);
 	  if (size > sizeof buf - 1)
 	    size = sizeof buf - 1;
 	  if (bfd_get_section_contents (core_bfd, section, buf, (file_ptr) 0,
@@ -673,7 +674,8 @@ fbsd_corefile_thread (struct thread_info *info,
 {
   struct regcache *regcache;
 
-  regcache = get_thread_arch_regcache (info->ptid, args->gdbarch);
+  regcache = get_thread_arch_regcache (info->inf->process_target (),
+				       info->ptid, args->gdbarch);
 
   target_fetch_registers (regcache, -1);
 
@@ -724,14 +726,14 @@ fbsd_make_corefile_notes (struct gdbarch *gdbarch, bfd *obfd, int *note_size)
   if (get_exec_file (0))
     {
       const char *fname = lbasename (get_exec_file (0));
-      char *psargs = xstrdup (fname);
+      std::string psargs = fname;
 
-      if (get_inferior_args ())
-	psargs = reconcat (psargs, psargs, " ", get_inferior_args (),
-			   (char *) NULL);
+      const char *infargs = get_inferior_args ();
+      if (infargs != NULL)
+	psargs = psargs + " " + infargs;
 
       note_data = elfcore_write_prpsinfo (obfd, note_data, note_size,
-					  fname, psargs);
+					  fname, psargs.c_str ());
     }
 
   /* Thread register information.  */
@@ -1018,12 +1020,12 @@ fbsd_info_proc_files_entry (int kf_type, int kf_fd, int kf_flags,
 
 	    /* For local sockets, print out the first non-nul path
 	       rather than both paths.  */
-	    const struct fbsd_sockaddr_un *sun
+	    const struct fbsd_sockaddr_un *saddr_un
 	      = reinterpret_cast<const struct fbsd_sockaddr_un *> (kf_sa_local);
-	    if (sun->sun_path[0] == 0)
-	      sun = reinterpret_cast<const struct fbsd_sockaddr_un *>
+	    if (saddr_un->sun_path[0] == 0)
+	      saddr_un = reinterpret_cast<const struct fbsd_sockaddr_un *>
 		(kf_sa_peer);
-	    printf_filtered ("%s", sun->sun_path);
+	    printf_filtered ("%s", saddr_un->sun_path);
 	    break;
 	  }
 	case FBSD_AF_INET:
@@ -1058,7 +1060,7 @@ fbsd_core_info_proc_files (struct gdbarch *gdbarch)
       return;
     }
 
-  size_t note_size = bfd_get_section_size (section);
+  size_t note_size = bfd_section_size (section);
   if (note_size < 4)
     error (_("malformed core note - too short for header"));
 
@@ -1191,7 +1193,7 @@ fbsd_core_info_proc_mappings (struct gdbarch *gdbarch)
       return;
     }
 
-  note_size = bfd_get_section_size (section);
+  note_size = bfd_section_size (section);
   if (note_size < 4)
     error (_("malformed core note - too short for header"));
 
@@ -1239,7 +1241,7 @@ fbsd_core_vnode_path (struct gdbarch *gdbarch, int fd)
   if (section == NULL)
     return nullptr;
 
-  note_size = bfd_get_section_size (section);
+  note_size = bfd_section_size (section);
   if (note_size < 4)
     error (_("malformed core note - too short for header"));
 
@@ -1344,7 +1346,7 @@ fbsd_core_info_proc_status (struct gdbarch *gdbarch)
    * structure size, then it must be long enough to access the last
    * field used (ki_rusage_ch.ru_majflt) which is the size of a long.
    */
-  note_size = bfd_get_section_size (section);
+  note_size = bfd_section_size (section);
   if (note_size < (4 + kp->ki_rusage_ch + kp->ru_majflt
 		   + long_bit / TARGET_CHAR_BIT))
     error (_("malformed core note - too short"));
@@ -1433,7 +1435,7 @@ fbsd_core_info_proc_status (struct gdbarch *gdbarch)
 			   sec, value);
   printf_filtered ("stime, children: %s.%06d\n", plongest (sec), (int) value);
   printf_filtered ("'nice' value: %d\n",
-		   bfd_get_signed_8 (core_bfd, descdata + kp->ki_nice));
+		   (int) bfd_get_signed_8 (core_bfd, descdata + kp->ki_nice));
   fbsd_core_fetch_timeval (gdbarch, descdata + kp->ki_start, sec, value);
   printf_filtered ("Start time: %s.%06d\n", plongest (sec), (int) value);
   printf_filtered ("Virtual memory size: %s kB\n",
@@ -1596,6 +1598,12 @@ fbsd_print_auxv_entry (struct gdbarch *gdbarch, struct ui_file *file,
       TAG (EHDRFLAGS, _("ELF header e_flags"), AUXV_FORMAT_HEX);
       TAG (HWCAP, _("Machine-dependent CPU capability hints"), AUXV_FORMAT_HEX);
       TAG (HWCAP2, _("Extension of AT_HWCAP"), AUXV_FORMAT_HEX);
+      TAG (BSDFLAGS, _("ELF BSD flags"), AUXV_FORMAT_HEX);
+      TAG (ARGC, _("Argument count"), AUXV_FORMAT_DEC);
+      TAG (ARGV, _("Argument vector"), AUXV_FORMAT_HEX);
+      TAG (ENVC, _("Environment count"), AUXV_FORMAT_DEC);
+      TAG (ENVV, _("Environment vector"), AUXV_FORMAT_HEX);
+      TAG (PS_STRINGS, _("Pointer to ps_strings"), AUXV_FORMAT_HEX);
     }
 
   fprint_auxv_entry (file, name, description, format, type, val);
@@ -1627,7 +1635,7 @@ fbsd_get_siginfo_type (struct gdbarch *gdbarch)
 
   /* union sigval */
   sigval_type = arch_composite_type (gdbarch, NULL, TYPE_CODE_UNION);
-  TYPE_NAME (sigval_type) = xstrdup ("sigval");
+  sigval_type->set_name (xstrdup ("sigval"));
   append_composite_type_field (sigval_type, "sival_int", int_type);
   append_composite_type_field (sigval_type, "sival_ptr", void_ptr_type);
 
@@ -1635,14 +1643,14 @@ fbsd_get_siginfo_type (struct gdbarch *gdbarch)
   pid_type = arch_type (gdbarch, TYPE_CODE_TYPEDEF,
 			TYPE_LENGTH (int32_type) * TARGET_CHAR_BIT, "__pid_t");
   TYPE_TARGET_TYPE (pid_type) = int32_type;
-  TYPE_TARGET_STUB (pid_type) = 1;
+  pid_type->set_target_is_stub (true);
 
   /* __uid_t */
   uid_type = arch_type (gdbarch, TYPE_CODE_TYPEDEF,
 			TYPE_LENGTH (uint32_type) * TARGET_CHAR_BIT,
 			"__uid_t");
   TYPE_TARGET_TYPE (uid_type) = uint32_type;
-  TYPE_TARGET_STUB (uid_type) = 1;
+  pid_type->set_target_is_stub (true);
 
   /* _reason */
   reason_type = arch_composite_type (gdbarch, NULL, TYPE_CODE_UNION);
@@ -1677,7 +1685,7 @@ fbsd_get_siginfo_type (struct gdbarch *gdbarch)
 
   /* struct siginfo */
   siginfo_type = arch_composite_type (gdbarch, NULL, TYPE_CODE_STRUCT);
-  TYPE_NAME (siginfo_type) = xstrdup ("siginfo");
+  siginfo_type->set_name (xstrdup ("siginfo"));
   append_composite_type_field (siginfo_type, "si_signo", int_type);
   append_composite_type_field (siginfo_type, "si_errno", int_type);
   append_composite_type_field (siginfo_type, "si_code", int_type);
@@ -1981,9 +1989,9 @@ fbsd_fetch_rtld_offsets (struct gdbarch *gdbarch, struct fbsd_pspace_data *data)
 				     language_c, NULL).symbol;
       if (obj_entry_sym == NULL)
 	error (_("Unable to find Struct_Obj_Entry symbol"));
-      data->off_linkmap = lookup_struct_elt (SYMBOL_TYPE(obj_entry_sym),
+      data->off_linkmap = lookup_struct_elt (SYMBOL_TYPE (obj_entry_sym),
 					     "linkmap", 0).offset / 8;
-      data->off_tlsindex = lookup_struct_elt (SYMBOL_TYPE(obj_entry_sym),
+      data->off_tlsindex = lookup_struct_elt (SYMBOL_TYPE (obj_entry_sym),
 					      "tlsindex", 0).offset / 8;
       data->rtld_offsets_valid = true;
       return;
@@ -2064,6 +2072,18 @@ fbsd_get_thread_local_address (struct gdbarch *gdbarch, CORE_ADDR dtv_addr,
   return addr + offset;
 }
 
+/* See fbsd-tdep.h.  */
+
+CORE_ADDR
+fbsd_skip_solib_resolver (struct gdbarch *gdbarch, CORE_ADDR pc)
+{
+  struct bound_minimal_symbol msym = lookup_bound_minimal_symbol ("_rtld_bind");
+  if (msym.minsym != nullptr && BMSYMBOL_VALUE_ADDRESS (msym) == pc)
+    return frame_unwind_caller_pc (get_current_frame ());
+
+  return 0;
+}
+
 /* To be called from GDB_OSABI_FREEBSD handlers. */
 
 void
@@ -2078,14 +2098,16 @@ fbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_get_siginfo_type (gdbarch, fbsd_get_siginfo_type);
   set_gdbarch_gdb_signal_from_target (gdbarch, fbsd_gdb_signal_from_target);
   set_gdbarch_gdb_signal_to_target (gdbarch, fbsd_gdb_signal_to_target);
+  set_gdbarch_skip_solib_resolver (gdbarch, fbsd_skip_solib_resolver);
 
   /* `catch syscall' */
   set_xml_syscall_file_name (gdbarch, "syscalls/freebsd.xml");
   set_gdbarch_get_syscall_number (gdbarch, fbsd_get_syscall_number);
 }
 
+void _initialize_fbsd_tdep ();
 void
-_initialize_fbsd_tdep (void)
+_initialize_fbsd_tdep ()
 {
   fbsd_gdbarch_data_handle =
     gdbarch_data_register_post_init (init_fbsd_gdbarch_data);

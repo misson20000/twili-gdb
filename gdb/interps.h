@@ -1,6 +1,6 @@
 /* Manages interpreters for GDB, the GNU debugger.
 
-   Copyright (C) 2000-2019 Free Software Foundation, Inc.
+   Copyright (C) 2000-2020 Free Software Foundation, Inc.
 
    Written by Jim Ingham <jingham@apple.com> of Apple Computer, Inc.
 
@@ -25,6 +25,7 @@
 struct ui_out;
 struct interp;
 struct ui;
+class completion_tracker;
 
 typedef struct interp *(*interp_factory_func) (const char *name);
 

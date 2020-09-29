@@ -1,4 +1,4 @@
-# Copyright (C) 2011-2019 Free Software Foundation, Inc.
+# Copyright (C) 2011-2020 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -54,4 +54,4 @@ gdb_test "python print (gdb.newest_frame())" ".*"
 
 # Regression test to verify that Frame.function works properly for
 # inline frames.
-gdb_test "python print (gdb.newest_frame().function())" "f"
+gdb_test "python print (gdb.newest_frame().function())" "f(\\(\\))?"

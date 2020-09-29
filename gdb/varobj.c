@@ -1,6 +1,6 @@
 /* Implementation of the GDB variable objects API.
 
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -26,11 +26,11 @@
 #include "gdb_regex.h"
 
 #include "varobj.h"
-#include "common/vec.h"
 #include "gdbthread.h"
 #include "inferior.h"
 #include "varobj-iter.h"
 #include "parser-defs.h"
+#include "gdbarch.h"
 
 #if HAVE_PYTHON
 #include "python/python.h"
@@ -39,7 +39,7 @@
 typedef int PyObject;
 #endif
 
-/* Non-zero if we want to see trace of varobj level stuff.  */
+/* See varobj.h.  */
 
 unsigned int varobjdebug = 0;
 static void
@@ -386,7 +386,7 @@ varobj_create (const char *objname,
 	}
 
       /* Set language info */
-      var->root->lang_ops = var->root->exp->language_defn->la_varobj_ops;
+      var->root->lang_ops = var->root->exp->language_defn->varobj_ops ();
 
       install_new_value (var.get (), value, 1 /* Initial assignment */);
 
@@ -597,10 +597,9 @@ varobj_get_frozen (const struct varobj *var)
   return var->frozen;
 }
 
-/* A helper function that restricts a range to what is actually
-   available in a VEC.  This follows the usual rules for the meaning
-   of FROM and TO -- if either is negative, the entire range is
-   used.  */
+/* A helper function that updates the contents of FROM and TO based on the
+   size of the vector CHILDREN.  If the contents of either FROM or TO are
+   negative the entire range is used.  */
 
 void
 varobj_restrict_range (const std::vector<varobj *> &children,
@@ -1272,7 +1271,7 @@ install_new_value (struct varobj *var, struct value *value, bool initial)
   if (value)
     value = coerce_ref (value);
 
-  if (var->type && TYPE_CODE (var->type) == TYPE_CODE_UNION)
+  if (var->type && var->type->code () == TYPE_CODE_UNION)
     /* For unions, we need to fetch the value implicitly because
        of implementation of union member fetch.  When gdb
        creates a value for a field and the value of the enclosing
@@ -1300,7 +1299,7 @@ install_new_value (struct varobj *var, struct value *value, bool initial)
 	{
 	  /* For variables that are frozen, or are children of frozen
 	     variables, we don't do fetch on initial assignment.
-	     For non-initial assignemnt we do the fetch, since it means we're
+	     For non-initial assignment we do the fetch, since it means we're
 	     explicitly asked to compare the new value with the old one.  */
 	  intentionally_not_fetched = true;
 	}
@@ -1832,7 +1831,7 @@ install_variable (struct varobj *var)
   return true;			/* OK */
 }
 
-/* Unistall the object VAR.  */
+/* Uninstall the object VAR.  */
 static void
 uninstall_variable (struct varobj *var)
 {
@@ -1999,7 +1998,7 @@ varobj::~varobj ()
    value were accessible.
 
    This differs from VAR->type in that VAR->type is always
-   the true type of the expession in the source language.
+   the true type of the expression in the source language.
    The return value of this function is the type we're
    actually storing in varobj, and using for displaying
    the values and for comparing previous and new values.
@@ -2399,7 +2398,7 @@ varobj_editable_p (const struct varobj *var)
 
   type = varobj_get_value_type (var);
 
-  switch (TYPE_CODE (type))
+  switch (type->code ())
     {
     case TYPE_CODE_STRUCT:
     case TYPE_CODE_UNION:
@@ -2446,7 +2445,7 @@ varobj_default_value_is_changeable_p (const struct varobj *var)
 
   type = varobj_get_value_type (var);
 
-  switch (TYPE_CODE (type))
+  switch (type->code ())
     {
     case TYPE_CODE_STRUCT:
     case TYPE_CODE_UNION:
@@ -2521,8 +2520,9 @@ varobj_invalidate (void)
   all_root_varobjs (varobj_invalidate_iter, NULL);
 }
 
+void _initialize_varobj ();
 void
-_initialize_varobj (void)
+_initialize_varobj ()
 {
   varobj_table = XCNEWVEC (struct vlist *, VAROBJ_TABLE_SIZE);
 

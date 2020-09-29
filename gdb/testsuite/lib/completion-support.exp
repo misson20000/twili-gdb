@@ -1,4 +1,4 @@
-# Copyright 2017-2019 Free Software Foundation, Inc.
+# Copyright 2017-2020 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -108,13 +108,19 @@ proc test_gdb_complete_tab_unique { input_line complete_line_re append_char_re }
 
     set test "tab complete \"$input_line\""
     send_gdb "$input_line\t"
+    set res 1
     gdb_test_multiple "" "$test" {
 	-re "^$complete_line_re$append_char_re$" {
 	    pass "$test"
 	}
+	timeout {
+	    fail "$test (timeout)"
+	    set res -1
+	}
     }
 
     clear_input_line $test
+    return $res
 }
 
 # Test that completing INPUT_LINE with TAB completes to "INPUT_LINE +
@@ -151,8 +157,12 @@ proc test_gdb_complete_tab_multiple { input_line add_completed_line \
 		set maybe_bell ""
 	    }
 	    gdb_test_multiple "" "$test (second tab)" {
-		-re "^${maybe_bell}\r\n$expected_re\r\n$gdb_prompt $input_line_re$add_completed_line_re$" {
-		    pass "$test"
+		-re "^${maybe_bell}\r\n$expected_re\r\n$gdb_prompt " {
+		    gdb_test_multiple "" "$test (second tab)" {
+			-re "^$input_line_re$add_completed_line_re$" {
+			    pass "$test"
+			}
+		    }
 		}
 	    }
 	}
@@ -196,8 +206,9 @@ proc test_gdb_complete_cmd_multiple { cmd_prefix completion_word completion_list
     set expected_re [make_cmd_completion_list_re $cmd_prefix $completion_list $start_quote_char $end_quote_char]
 
     if {$max_completions} {
+	set cmd_prefix_re [string_to_regexp $cmd_prefix]
 	append expected_re \
-	    "$cmd_prefix \\*\\*\\* List may be truncated, max-completions reached\\. \\*\\*\\*.*\r\n"
+	    "$cmd_prefix_re \\*\\*\\* List may be truncated, max-completions reached\\. \\*\\*\\*.*\r\n"
     }
 
     set cmd_re [string_to_regexp "complete $cmd_prefix$completion_word"]
@@ -212,7 +223,9 @@ proc test_gdb_complete_cmd_multiple { cmd_prefix completion_word completion_list
 # Test that completing LINE completes to nothing.
 
 proc test_gdb_complete_none { input_line } {
-    test_gdb_complete_tab_none $input_line
+    if { [readline_is_used] } {
+	test_gdb_complete_tab_none $input_line
+    }
     test_gdb_complete_cmd_none $input_line
 }
 
@@ -234,7 +247,12 @@ proc test_gdb_complete_none { input_line } {
 
 proc test_gdb_complete_unique_re { input_line complete_line_re {append_char " "} {max_completions 0}} {
     set append_char_re [string_to_regexp $append_char]
-    test_gdb_complete_tab_unique $input_line $complete_line_re $append_char_re
+    if { [readline_is_used] } {
+	if { [test_gdb_complete_tab_unique $input_line $complete_line_re \
+		  $append_char_re] == -1 } {
+	    return -1
+	}
+    }
 
     # Trim INPUT_LINE and COMPLETE LINE, for the case we're completing
     # a command with leading whitespace.  Leading command whitespace
@@ -257,6 +275,7 @@ proc test_gdb_complete_unique_re { input_line complete_line_re {append_char " "}
     }
 
     test_gdb_complete_cmd_unique $input_line $expected_output_re
+    return 1
 }
 
 # Like TEST_GDB_COMPLETE_UNIQUE_RE, but COMPLETE_LINE is a string, not
@@ -277,7 +296,9 @@ proc test_gdb_complete_multiple {
   cmd_prefix completion_word add_completed_line completion_list
   {start_quote_char ""} {end_quote_char ""} {max_completions 0}
 } {
-    test_gdb_complete_tab_multiple "$cmd_prefix$completion_word" $add_completed_line $completion_list $max_completions
+    if { [readline_is_used] } {
+      test_gdb_complete_tab_multiple "$cmd_prefix$completion_word" $add_completed_line $completion_list $max_completions
+    }
     test_gdb_complete_cmd_multiple $cmd_prefix $completion_word $completion_list $start_quote_char $end_quote_char $max_completions
 }
 
@@ -290,9 +311,22 @@ proc test_complete_prefix_range_re {input completion_re start {end -1}} {
 	set end [string length $input]
     }
 
+    set timeouts 0
+    set max_timeouts 3
     for {set i $start} {$i < $end} {incr i} {
 	set line [string range $input 0 $i]
-	test_gdb_complete_unique_re "$line" $completion_re
+	set res [test_gdb_complete_unique_re "$line" $completion_re]
+	if { $res == -1 } {
+	    incr timeouts
+	} else {
+	    if { $timeouts > 0 } {
+		set timeouts 0
+	    }
+	}
+	if { $timeouts == $max_timeouts } {
+	    verbose -log "Consecutive timeouts in test_complete_prefix_range_re, giving up"
+	    break
+	}
     }
 }
 
@@ -521,10 +555,19 @@ proc test_gdb_completion_offers_commands {input_line} {
     # Force showing two commands.
     gdb_test_no_output "set max-completions 2" ""
 
-    test_gdb_complete_multiple $input_line "" "" {
-	"!"
-	"+"
-    } "" "" 1
+    # TUI adds additional commands to the possible completions, so we
+    # need different patterns depending on whether or not it is enabled.
+    if { [skip_tui_tests] } {
+	test_gdb_complete_multiple $input_line "" "" {
+	    "!"
+	    "actions"
+	} "" "" 1
+    } else {
+	test_gdb_complete_multiple $input_line "" "" {
+	    "!"
+	    "+"
+	} "" "" 1
+    }
 
     # Restore.
     gdb_test_no_output "set max-completions $max_completions" ""

@@ -1,6 +1,6 @@
 /* Generic static probe support for GDB.
 
-   Copyright (C) 2012-2019 Free Software Foundation, Inc.
+   Copyright (C) 2012-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -36,7 +36,7 @@
 #include "location.h"
 #include <ctype.h>
 #include <algorithm>
-#include "common/gdb_optional.h"
+#include "gdbsupport/gdb_optional.h"
 
 /* Class that implements the static probe methods for "any" probe.  */
 
@@ -185,9 +185,7 @@ parse_probes (const struct event_location *location,
     }
   else
     {
-      struct program_space *pspace;
-
-      ALL_PSPACES (pspace)
+      for (struct program_space *pspace : program_spaces)
 	parse_probes_in_pspace (spops, pspace, objfile_namestr,
 				provider, name, &result);
     }
@@ -695,7 +693,7 @@ probe_safe_evaluate_at_pc (struct frame_info *frame, unsigned n)
   if (!probe.prob)
     return NULL;
 
-  n_args = probe.prob->get_argument_count (frame);
+  n_args = probe.prob->get_argument_count (get_frame_arch (frame));
   if (n >= n_args)
     return NULL;
 
@@ -818,7 +816,7 @@ compute_probe_arg (struct gdbarch *arch, struct internalvar *ivar,
   if (pc_probe.prob == NULL)
     error (_("No probe at PC %s"), core_addr_to_string (pc));
 
-  n_args = pc_probe.prob->get_argument_count (frame);
+  n_args = pc_probe.prob->get_argument_count (arch);
   if (sel == -1)
     return value_from_longest (builtin_type (arch)->builtin_int, n_args);
 
@@ -840,7 +838,6 @@ compile_probe_arg (struct internalvar *ivar, struct agent_expr *expr,
   int sel = (int) (uintptr_t) data;
   struct bound_probe pc_probe;
   int n_args;
-  struct frame_info *frame = get_selected_frame (NULL);
 
   /* SEL == -1 means "_probe_argc".  */
   gdb_assert (sel >= -1);
@@ -849,7 +846,7 @@ compile_probe_arg (struct internalvar *ivar, struct agent_expr *expr,
   if (pc_probe.prob == NULL)
     error (_("No probe at PC %s"), core_addr_to_string (pc));
 
-  n_args = pc_probe.prob->get_argument_count (frame);
+  n_args = pc_probe.prob->get_argument_count (expr->gdbarch);
 
   if (sel == -1)
     {
@@ -877,8 +874,9 @@ static const struct internalvar_funcs probe_funcs =
 
 std::vector<const static_probe_ops *> all_static_probe_ops;
 
+void _initialize_probe ();
 void
-_initialize_probe (void)
+_initialize_probe ()
 {
   all_static_probe_ops.push_back (&any_static_probe_ops);
 

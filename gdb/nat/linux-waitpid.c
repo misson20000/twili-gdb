@@ -1,6 +1,6 @@
 /* Wrapper implementation for waitpid for GNU/Linux (LWP layer).
 
-   Copyright (C) 2001-2019 Free Software Foundation, Inc.
+   Copyright (C) 2001-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,11 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "common/common-defs.h"
+#include "gdbsupport/common-defs.h"
 
 #include "linux-nat.h"
 #include "linux-waitpid.h"
-#include "common/gdb_wait.h"
+#include "gdbsupport/gdb_wait.h"
 
 /* Convert wait status STATUS to a string.  Used for printing debug
    messages only.  */

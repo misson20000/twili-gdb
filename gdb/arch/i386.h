@@ -1,4 +1,4 @@
-/* Copyright (C) 2017-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2017-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,7 @@
 #ifndef ARCH_I386_H
 #define ARCH_I386_H
 
-#include "common/tdesc.h"
+#include "gdbsupport/tdesc.h"
 #include <stdint.h>
 
 target_desc *i386_create_target_description (uint64_t xcr0, bool is_linux,

@@ -1,5 +1,5 @@
 /* OS ABI variant handling for GDB.
-   Copyright (C) 2001-2019 Free Software Foundation, Inc.
+   Copyright (C) 2001-2020 Free Software Foundation, Inc.
    
    This file is part of GDB.
 
@@ -18,6 +18,38 @@
 
 #ifndef OSABI_H
 #define OSABI_H
+
+/* * List of known OS ABIs.  If you change this, make sure to update the
+   table in osabi.c.  */
+enum gdb_osabi
+{
+  GDB_OSABI_UNKNOWN = 0,	/* keep this zero */
+  GDB_OSABI_NONE,
+
+  GDB_OSABI_SVR4,
+  GDB_OSABI_HURD,
+  GDB_OSABI_SOLARIS,
+  GDB_OSABI_LINUX,
+  GDB_OSABI_FREEBSD,
+  GDB_OSABI_NETBSD,
+  GDB_OSABI_OPENBSD,
+  GDB_OSABI_WINCE,
+  GDB_OSABI_GO32,
+  GDB_OSABI_QNXNTO,
+  GDB_OSABI_CYGWIN,
+  GDB_OSABI_WINDOWS,
+  GDB_OSABI_AIX,
+  GDB_OSABI_DICOS,
+  GDB_OSABI_DARWIN,
+  GDB_OSABI_SYMBIAN,
+  GDB_OSABI_OPENVMS,
+  GDB_OSABI_LYNXOS178,
+  GDB_OSABI_NEWLIB,
+  GDB_OSABI_SDE,
+  GDB_OSABI_PIKEOS,
+
+  GDB_OSABI_INVALID		/* keep this last */
+};
 
 /* Register an OS ABI sniffer.  Each arch/flavour may have more than
    one sniffer.  This is used to e.g. differentiate one OS's a.out from
@@ -54,8 +86,8 @@ const char *gdbarch_osabi_name (enum gdb_osabi);
 const char *osabi_triplet_regexp (enum gdb_osabi osabi);
 
 /* Helper routine for ELF file sniffers.  This looks at ABI tag note
-   sections to determine the OS ABI from the note.  It should be called
-   via bfd_map_over_sections.  */
-void generic_elf_osabi_sniff_abi_tag_sections (bfd *, asection *, void *);
+   sections to determine the OS ABI from the note.  */
+void generic_elf_osabi_sniff_abi_tag_sections (bfd *, asection *,
+					       enum gdb_osabi *);
 
 #endif /* OSABI_H */

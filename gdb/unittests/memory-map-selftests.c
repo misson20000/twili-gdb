@@ -1,6 +1,6 @@
 /* Self tests for memory-map for GDB, the GNU debugger.
 
-   Copyright (C) 2017-2019 Free Software Foundation, Inc.
+   Copyright (C) 2017-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,7 +18,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #include "defs.h"
-#include "common/selftest.h"
+#include "gdbsupport/selftest.h"
 #include "memory-map.h"
 
 #if defined(HAVE_LIBEXPAT)
@@ -28,7 +28,7 @@ namespace memory_map_tests {
 
 /* A simple valid test input for parse_memory_map.  */
 
-static const char *valid_mem_map = R"(<?xml version="1.0"?>
+static const char valid_mem_map[] = R"(<?xml version="1.0"?>
 <!DOCTYPE memory-map
           PUBLIC "+//IDN gnu.org//DTD GDB Memory Map V1.0//EN"
                  "http://sourceware.org/gdb/gdb-memory-map.dtd">
@@ -76,6 +76,7 @@ parse_memory_map_tests ()
 
 #endif /* HAVE_LIBEXPAT */
 
+void _initialize_memory_map_selftests ();
 void
 _initialize_memory_map_selftests ()
 {

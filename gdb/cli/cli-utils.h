@@ -1,6 +1,6 @@
 /* CLI utilities.
 
-   Copyright (C) 2011-2019 Free Software Foundation, Inc.
+   Copyright (C) 2011-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,6 +19,10 @@
 
 #ifndef CLI_CLI_UTILS_H
 #define CLI_CLI_UTILS_H
+
+#include "completer.h"
+
+struct cmd_list_element;
 
 /* *PP is a string denoting a number.  Get the number.  Advance *PP
    after the string and any trailing whitespace.
@@ -43,23 +47,6 @@ extern int get_number (char **);
    error instead of returning 0.  */
 extern ULONGEST get_ulongest (const char **pp, int trailer = '\0');
 
-/* Extract from ARGS the arguments [-q] [-t TYPEREGEXP] [--] NAMEREGEXP.
-
-   The caller is responsible to initialize *QUIET to false, *REGEXP
-   and *T_REGEXP to "".
-   extract_info_print_args can then be called iteratively to search
-   for valid arguments, as part of a 'main parsing loop' searching for
-   -q/-t/-- arguments together with other flags and options.
-
-   Returns true and updates *ARGS + one of *QUIET, *REGEXP, *T_REGEXP if
-   it finds a valid argument.
-   Returns false if no valid argument is found at the beginning of ARGS.  */
-
-extern bool extract_info_print_args (const char **args,
-				     bool *quiet,
-				     std::string *regexp,
-				     std::string *t_regexp);
-
 /* Throws an error telling the user that ARGS starts with an option
    unrecognized by COMMAND.  */
 
@@ -68,10 +55,13 @@ extern void report_unrecognized_option_error (const char *command,
 
 
 /* Builds the help string for a command documented by PREFIX,
-   followed by the extract_info_print_args help for ENTITY_KIND.  */
+   followed by the extract_info_print_args help for ENTITY_KIND.  If
+   DOCUMENT_N_FLAG is true then help text describing the -n flag is also
+   included.  */
 
 const char *info_print_args_help (const char *prefix,
-				  const char *entity_kind);
+				  const char *entity_kind,
+				  bool document_n_flag);
 
 /* Parse a number or a range.
    A number will be of the form handled by get_number.
@@ -225,9 +215,9 @@ check_for_argument (char **str, const char *arg)
 
 struct qcs_flags
 {
-  int quiet = false;
-  int cont = false;
-  int silent = false;
+  bool quiet = false;
+  bool cont = false;
+  bool silent = false;
 };
 
 /* Validate FLAGS.  Throws an error if both FLAGS->CONT and

@@ -21,6 +21,9 @@
 /* Should strings use -a behavior by default? */
 #undef DEFAULT_STRINGS_ALL
 
+/* Handle .ctf type-info sections */
+#undef ENABLE_LIBCTF
+
 /* Define to 1 if translation of program messages to the user's native
    language is requested. */
 #undef ENABLE_NLS
@@ -108,6 +111,9 @@
 
 /* Define if your <locale.h> file defines LC_MESSAGES. */
 #undef HAVE_LC_MESSAGES
+
+/* Define to 1 if debuginfod is enabled. */
+#undef HAVE_LIBDEBUGINFOD
 
 /* Define to 1 if you have the <limits.h> header file. */
 #undef HAVE_LIMITS_H

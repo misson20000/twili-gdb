@@ -1,5 +1,5 @@
 /* YACC parser for C expressions, for GDB.
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -54,6 +54,7 @@
 #include "typeprint.h"
 #include "cp-abi.h"
 #include "type-stack.h"
+#include "target-float.h"
 
 #define parse_type(ps) builtin_type (ps->gdbarch ())
 
@@ -174,7 +175,7 @@ static void c_print_token (FILE *file, int type, YYSTYPE value);
 
 %type <voidval> exp exp1 type_exp start variable qualified_name lcurly function_method
 %type <lval> rcurly
-%type <tval> type typebase
+%type <tval> type typebase scalar_type
 %type <tvec> nonempty_typelist func_mod parameter_typelist
 /* %type <bval> block */
 
@@ -185,8 +186,8 @@ static void c_print_token (FILE *file, int type, YYSTYPE value);
 
 %type <type_stack> ptr_operator_ts abs_decl direct_abs_decl
 
-%token <typed_val_int> INT
-%token <typed_val_float> FLOAT
+%token <typed_val_int> INT COMPLEX_INT
+%token <typed_val_float> FLOAT COMPLEX_FLOAT
 
 /* Both NAME and TYPENAME tokens represent symbols in the input,
    and both convey their data as strings.
@@ -237,6 +238,8 @@ static void c_print_token (FILE *file, int type, YYSTYPE value);
 /* Special type cases, put in to allow the parser to distinguish different
    legal basetypes.  */
 %token SIGNED_KEYWORD LONG SHORT INT_KEYWORD CONST_KEYWORD VOLATILE_KEYWORD DOUBLE_KEYWORD
+%token RESTRICT ATOMIC
+%token FLOAT_KEYWORD COMPLEX
 
 %token <sval> DOLLAR_VARIABLE
 
@@ -774,6 +777,22 @@ exp	:	INT
 			  write_exp_elt_opcode (pstate, OP_LONG); }
 	;
 
+exp	:	COMPLEX_INT
+			{
+			  write_exp_elt_opcode (pstate, OP_LONG);
+			  write_exp_elt_type (pstate, TYPE_TARGET_TYPE ($1.type));
+			  write_exp_elt_longcst (pstate, 0);
+			  write_exp_elt_opcode (pstate, OP_LONG);
+			  write_exp_elt_opcode (pstate, OP_LONG);
+			  write_exp_elt_type (pstate, TYPE_TARGET_TYPE ($1.type));
+			  write_exp_elt_longcst (pstate, (LONGEST) ($1.val));
+			  write_exp_elt_opcode (pstate, OP_LONG);
+			  write_exp_elt_opcode (pstate, OP_COMPLEX);
+			  write_exp_elt_type (pstate, $1.type);
+			  write_exp_elt_opcode (pstate, OP_COMPLEX);
+			}
+	;
+
 exp	:	CHAR
 			{
 			  struct stoken_vector vec;
@@ -803,6 +822,27 @@ exp	:	FLOAT
 			  write_exp_elt_opcode (pstate, OP_FLOAT); }
 	;
 
+exp	:	COMPLEX_FLOAT
+			{
+			  struct type *underlying
+			    = TYPE_TARGET_TYPE ($1.type);
+
+			  write_exp_elt_opcode (pstate, OP_FLOAT);
+			  write_exp_elt_type (pstate, underlying);
+			  gdb_byte val[16];
+			  target_float_from_host_double (val, underlying, 0);
+			  write_exp_elt_floatcst (pstate, val);
+			  write_exp_elt_opcode (pstate, OP_FLOAT);
+			  write_exp_elt_opcode (pstate, OP_FLOAT);
+			  write_exp_elt_type (pstate, underlying);
+			  write_exp_elt_floatcst (pstate, $1.val);
+			  write_exp_elt_opcode (pstate, OP_FLOAT);
+			  write_exp_elt_opcode (pstate, OP_COMPLEX);
+			  write_exp_elt_type (pstate, $1.type);
+			  write_exp_elt_opcode (pstate, OP_COMPLEX);
+			}
+	;
+
 exp	:	variable
 	;
 
@@ -824,7 +864,6 @@ exp	:	SIZEOF '(' type ')'	%prec UNARY
 			  write_exp_elt_opcode (pstate, OP_LONG);
 			  write_exp_elt_type (pstate, lookup_signed_typename
 					      (pstate->language (),
-					       pstate->gdbarch (),
 					       "int"));
 			  type = check_typedef (type);
 
@@ -1170,36 +1209,43 @@ variable:	name_not_typename
 			}
 	;
 
-space_identifier : '@' NAME
+const_or_volatile: const_or_volatile_noopt
+	|
+	;
+
+single_qualifier:
+		CONST_KEYWORD
+			{ cpstate->type_stack.insert (tp_const); }
+	| 	VOLATILE_KEYWORD
+			{ cpstate->type_stack.insert (tp_volatile); }
+	| 	ATOMIC
+			{ cpstate->type_stack.insert (tp_atomic); }
+	| 	RESTRICT
+			{ cpstate->type_stack.insert (tp_restrict); }
+	|	'@' NAME
 		{
 		  cpstate->type_stack.insert (pstate,
 					      copy_name ($2.stoken).c_str ());
 		}
 	;
 
-const_or_volatile: const_or_volatile_noopt
-	|
+qualifier_seq_noopt:
+		single_qualifier
+	| 	qualifier_seq single_qualifier
 	;
 
-cv_with_space_id : const_or_volatile space_identifier const_or_volatile
-	;
-
-const_or_volatile_or_space_identifier_noopt: cv_with_space_id
-	| const_or_volatile_noopt
-	;
-
-const_or_volatile_or_space_identifier:
-		const_or_volatile_or_space_identifier_noopt
+qualifier_seq:
+		qualifier_seq_noopt
 	|
 	;
 
 ptr_operator:
 		ptr_operator '*'
 			{ cpstate->type_stack.insert (tp_pointer); }
-		const_or_volatile_or_space_identifier
+		qualifier_seq
 	|	'*'
 			{ cpstate->type_stack.insert (tp_pointer); }
-		const_or_volatile_or_space_identifier
+		qualifier_seq
 	|	'&'
 			{ cpstate->type_stack.insert (tp_reference); }
 	|	'&' ptr_operator
@@ -1286,6 +1332,117 @@ func_mod:	'(' ')'
 type	:	ptype
 	;
 
+/* A helper production that recognizes scalar types that can validly
+   be used with _Complex.  */
+
+scalar_type:
+		INT_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "int"); }
+	|	LONG
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long"); }
+	|	SHORT
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "short"); }
+	|	LONG INT_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long"); }
+	|	LONG SIGNED_KEYWORD INT_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long"); }
+	|	LONG SIGNED_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long"); }
+	|	SIGNED_KEYWORD LONG INT_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long"); }
+	|	UNSIGNED LONG INT_KEYWORD
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "long"); }
+	|	LONG UNSIGNED INT_KEYWORD
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "long"); }
+	|	LONG UNSIGNED
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "long"); }
+	|	LONG LONG
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long long"); }
+	|	LONG LONG INT_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long long"); }
+	|	LONG LONG SIGNED_KEYWORD INT_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long long"); }
+	|	LONG LONG SIGNED_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long long"); }
+	|	SIGNED_KEYWORD LONG LONG
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long long"); }
+	|	SIGNED_KEYWORD LONG LONG INT_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "long long"); }
+	|	UNSIGNED LONG LONG
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "long long"); }
+	|	UNSIGNED LONG LONG INT_KEYWORD
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "long long"); }
+	|	LONG LONG UNSIGNED
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "long long"); }
+	|	LONG LONG UNSIGNED INT_KEYWORD
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "long long"); }
+	|	SHORT INT_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "short"); }
+	|	SHORT SIGNED_KEYWORD INT_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "short"); }
+	|	SHORT SIGNED_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "short"); }
+	|	UNSIGNED SHORT INT_KEYWORD
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "short"); }
+	|	SHORT UNSIGNED
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "short"); }
+	|	SHORT UNSIGNED INT_KEYWORD
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "short"); }
+	|	DOUBLE_KEYWORD
+			{ $$ = lookup_typename (pstate->language (),
+						"double",
+						NULL,
+						0); }
+	|	FLOAT_KEYWORD
+			{ $$ = lookup_typename (pstate->language (),
+						"float",
+						NULL,
+						0); }
+	|	LONG DOUBLE_KEYWORD
+			{ $$ = lookup_typename (pstate->language (),
+						"long double",
+						NULL,
+						0); }
+	|	UNSIGNED type_name
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 $2.type->name ()); }
+	|	UNSIGNED
+			{ $$ = lookup_unsigned_typename (pstate->language (),
+							 "int"); }
+	|	SIGNED_KEYWORD type_name
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       $2.type->name ()); }
+	|	SIGNED_KEYWORD
+			{ $$ = lookup_signed_typename (pstate->language (),
+						       "int"); }
+	;
+
 /* Implements (approximately): (type-qualifier)* type-specifier.
 
    When type-specifier is only ever a single word, like 'float' then these
@@ -1299,122 +1456,12 @@ type	:	ptype
 typebase
 	:	TYPENAME
 			{ $$ = $1.type; }
-	|	INT_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "int"); }
-	|	LONG
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long"); }
-	|	SHORT
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "short"); }
-	|	LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long"); }
-	|	LONG SIGNED_KEYWORD INT_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long"); }
-	|	LONG SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long"); }
-	|	SIGNED_KEYWORD LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long"); }
-	|	UNSIGNED LONG INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "long"); }
-	|	LONG UNSIGNED INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "long"); }
-	|	LONG UNSIGNED
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "long"); }
-	|	LONG LONG
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long long"); }
-	|	LONG LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long long"); }
-	|	LONG LONG SIGNED_KEYWORD INT_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long long"); }
-	|	LONG LONG SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long long"); }
-	|	SIGNED_KEYWORD LONG LONG
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long long"); }
-	|	SIGNED_KEYWORD LONG LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "long long"); }
-	|	UNSIGNED LONG LONG
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "long long"); }
-	|	UNSIGNED LONG LONG INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "long long"); }
-	|	LONG LONG UNSIGNED
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "long long"); }
-	|	LONG LONG UNSIGNED INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "long long"); }
-	|	SHORT INT_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "short"); }
-	|	SHORT SIGNED_KEYWORD INT_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "short"); }
-	|	SHORT SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "short"); }
-	|	UNSIGNED SHORT INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "short"); }
-	|	SHORT UNSIGNED
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "short"); }
-	|	SHORT UNSIGNED INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "short"); }
-	|	DOUBLE_KEYWORD
-			{ $$ = lookup_typename (pstate->language (),
-						pstate->gdbarch (),
-						"double",
-						NULL,
-						0); }
-	|	LONG DOUBLE_KEYWORD
-			{ $$ = lookup_typename (pstate->language (),
-						pstate->gdbarch (),
-						"long double",
-						NULL,
-						0); }
+	|	scalar_type
+			{ $$ = $1; }
+	|	COMPLEX scalar_type
+			{
+			  $$ = init_complex_type (nullptr, $2);
+			}
 	|	STRUCT name
 			{ $$
 			    = lookup_struct (copy_name ($2).c_str (),
@@ -1481,22 +1528,6 @@ typebase
 						       $2.length);
 			  $$ = NULL;
 			}
-	|	UNSIGNED type_name
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 TYPE_NAME($2.type)); }
-	|	UNSIGNED
-			{ $$ = lookup_unsigned_typename (pstate->language (),
-							 pstate->gdbarch (),
-							 "int"); }
-	|	SIGNED_KEYWORD type_name
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       TYPE_NAME($2.type)); }
-	|	SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (pstate->language (),
-						       pstate->gdbarch (),
-						       "int"); }
                 /* It appears that this rule for templates is never
                    reduced; template recognition happens by lookahead
                    in the token processing code in yylex. */
@@ -1505,9 +1536,9 @@ typebase
 			    (copy_name($2).c_str (), $4,
 			     pstate->expression_context_block);
 			}
-	| const_or_volatile_or_space_identifier_noopt typebase
+	|	qualifier_seq_noopt typebase
 			{ $$ = cpstate->type_stack.follow_types ($2); }
-	| typebase const_or_volatile_or_space_identifier_noopt
+	|	typebase qualifier_seq_noopt
 			{ $$ = cpstate->type_stack.follow_types ($1); }
 	;
 
@@ -1517,7 +1548,6 @@ type_name:	TYPENAME
 		  $$.stoken.ptr = "int";
 		  $$.stoken.length = 3;
 		  $$.type = lookup_signed_typename (pstate->language (),
-						    pstate->gdbarch (),
 						    "int");
 		}
 	|	LONG
@@ -1525,7 +1555,6 @@ type_name:	TYPENAME
 		  $$.stoken.ptr = "long";
 		  $$.stoken.length = 4;
 		  $$.type = lookup_signed_typename (pstate->language (),
-						    pstate->gdbarch (),
 						    "long");
 		}
 	|	SHORT
@@ -1533,7 +1562,6 @@ type_name:	TYPENAME
 		  $$.stoken.ptr = "short";
 		  $$.stoken.length = 5;
 		  $$.type = lookup_signed_typename (pstate->language (),
-						    pstate->gdbarch (),
 						    "short");
 		}
 	;
@@ -1711,13 +1739,14 @@ oper:	OPERATOR NEW
 
 			  c_print_type ($2, NULL, &buf, -1, 0,
 					&type_print_raw_options);
+			  std::string name = std::move (buf.string ());
 
 			  /* This also needs canonicalization.  */
-			  std::string canon
-			    = cp_canonicalize_string (buf.c_str ());
-			  if (canon.empty ())
-			    canon = std::move (buf.string ());
-			  $$ = operator_stoken ((" " + canon).c_str ());
+			  gdb::unique_xmalloc_ptr<char> canon
+			    = cp_canonicalize_string (name.c_str ());
+			  if (canon != nullptr)
+			    name = canon.get ();
+			  $$ = operator_stoken ((" " + name).c_str ());
 			}
 	;
 
@@ -1725,12 +1754,11 @@ oper:	OPERATOR NEW
    match the 'name' rule to appear as fields within a struct.  The example
    that initially motivated this was the RISC-V target which models the
    floating point registers as a union with fields called 'float' and
-   'double'.  The 'float' string becomes a TYPENAME token and can appear
-   anywhere a 'name' can, however 'double' is its own token,
-   DOUBLE_KEYWORD, and doesn't match the 'name' rule.*/
+   'double'.  */
 field_name
 	:	name
 	|	DOUBLE_KEYWORD { $$ = typename_stoken ("double"); }
+	|	FLOAT_KEYWORD { $$ = typename_stoken ("float"); }
 	|	INT_KEYWORD { $$ = typename_stoken ("int"); }
 	|	LONG { $$ = typename_stoken ("long"); }
 	|	SHORT { $$ = typename_stoken ("short"); }
@@ -1824,10 +1852,10 @@ typename_stoken (const char *type)
 static int
 type_aggregate_p (struct type *type)
 {
-  return (TYPE_CODE (type) == TYPE_CODE_STRUCT
-	  || TYPE_CODE (type) == TYPE_CODE_UNION
-	  || TYPE_CODE (type) == TYPE_CODE_NAMESPACE
-	  || (TYPE_CODE (type) == TYPE_CODE_ENUM
+  return (type->code () == TYPE_CODE_STRUCT
+	  || type->code () == TYPE_CODE_UNION
+	  || type->code () == TYPE_CODE_NAMESPACE
+	  || (type->code () == TYPE_CODE_ENUM
 	      && TYPE_DECLARED_CLASS (type)));
 }
 
@@ -1842,7 +1870,7 @@ check_parameter_typelist (std::vector<struct type *> *params)
   for (ix = 0; ix < params->size (); ++ix)
     {
       type = (*params)[ix];
-      if (type != NULL && TYPE_CODE (check_typedef (type)) == TYPE_CODE_VOID)
+      if (type != NULL && check_typedef (type)->code () == TYPE_CODE_VOID)
 	{
 	  if (ix == 0)
 	    {
@@ -1881,7 +1909,10 @@ parse_number (struct parser_state *par_state,
   /* Number of "L" suffixes encountered.  */
   int long_p = 0;
 
-  /* We have found a "L" or "U" suffix.  */
+  /* Imaginary number.  */
+  bool imaginary_p = false;
+
+  /* We have found a "L" or "U" (or "i") suffix.  */
   int found_suffix = 0;
 
   ULONGEST high_bit;
@@ -1894,6 +1925,12 @@ parse_number (struct parser_state *par_state,
 
   if (parsed_float)
     {
+      if (len >= 1 && p[len - 1] == 'i')
+	{
+	  imaginary_p = true;
+	  --len;
+	}
+
       /* Handle suffixes for decimal floating-point: "df", "dd" or "dl".  */
       if (len >= 2 && p[len - 2] == 'd' && p[len - 1] == 'f')
 	{
@@ -1937,7 +1974,12 @@ parse_number (struct parser_state *par_state,
 			putithere->typed_val_float.type,
 			putithere->typed_val_float.val))
         return ERROR;
-      return FLOAT;
+
+      if (imaginary_p)
+	putithere->typed_val_float.type
+	  = init_complex_type (nullptr, putithere->typed_val_float.type);
+
+      return imaginary_p ? COMPLEX_FLOAT : FLOAT;
     }
 
   /* Handle base-switching prefixes 0x, 0t, 0d, 0 */
@@ -1986,7 +2028,7 @@ parse_number (struct parser_state *par_state,
       c = *p++;
       if (c >= 'A' && c <= 'Z')
 	c += 'a' - 'A';
-      if (c != 'l' && c != 'u')
+      if (c != 'l' && c != 'u' && c != 'i')
 	n *= base;
       if (c >= '0' && c <= '9')
 	{
@@ -2012,6 +2054,11 @@ parse_number (struct parser_state *par_state,
 	      unsigned_p = 1;
 	      found_suffix = 1;
 	    }
+	  else if (c == 'i')
+	    {
+	      imaginary_p = true;
+	      found_suffix = 1;
+	    }
 	  else
 	    return ERROR;	/* Char not a digit */
 	}
@@ -2021,13 +2068,13 @@ parse_number (struct parser_state *par_state,
       /* Portably test for overflow (only works for nonzero values, so make
 	 a second check for zero).  FIXME: Can't we just make n and prevn
 	 unsigned and avoid this?  */
-      if (c != 'l' && c != 'u' && (prevn >= n) && n != 0)
+      if (c != 'l' && c != 'u' && c != 'i' && (prevn >= n) && n != 0)
 	unsigned_p = 1;		/* Try something unsigned */
 
       /* Portably test for unsigned overflow.
 	 FIXME: This check is wrong; for example it doesn't find overflow
 	 on 0x123456789 when LONGEST is 32 bits.  */
-      if (c != 'l' && c != 'u' && n != 0)
+      if (c != 'l' && c != 'u' && c != 'i' && n != 0)
 	{	
 	  if (unsigned_p && prevn >= n)
 	    error (_("Numeric constant too large."));
@@ -2099,7 +2146,11 @@ parse_number (struct parser_state *par_state,
        putithere->typed_val_int.type = signed_type;
      }
 
-   return INT;
+   if (imaginary_p)
+     putithere->typed_val_int.type
+       = init_complex_type (nullptr, putithere->typed_val_int.type);
+
+   return imaginary_p ? COMPLEX_INT : INT;
 }
 
 /* Temporary obstack used for holding strings.  */
@@ -2381,11 +2432,15 @@ enum token_flag
 
   FLAG_CXX = 1,
 
+  /* If this bit is set, the token is C-only.  */
+
+  FLAG_C = 2,
+
   /* If this bit is set, the token is conditional: if there is a
      symbol of the same name, then the token is a symbol; otherwise,
      the token is a keyword.  */
 
-  FLAG_SHADOW = 2
+  FLAG_SHADOW = 4
 };
 DEF_ENUM_FLAGS_TYPE (enum token_flag, token_flags);
 
@@ -2435,7 +2490,7 @@ static const struct token tokentab2[] =
 /* Identifier-like tokens.  Only type-specifiers than can appear in
    multi-word type names (for example 'double' can appear in 'long
    double') need to be listed here.  type-specifiers that are only ever
-   single word (like 'float') are handled by the classify_name function.  */
+   single word (like 'char') are handled by the classify_name function.  */
 static const struct token ident_tokens[] =
   {
     {"unsigned", UNSIGNED, OP_NULL, 0},
@@ -2447,13 +2502,21 @@ static const struct token ident_tokens[] =
     {"_Alignof", ALIGNOF, OP_NULL, 0},
     {"alignof", ALIGNOF, OP_NULL, FLAG_CXX},
     {"double", DOUBLE_KEYWORD, OP_NULL, 0},
+    {"float", FLOAT_KEYWORD, OP_NULL, 0},
     {"false", FALSEKEYWORD, OP_NULL, FLAG_CXX},
     {"class", CLASS, OP_NULL, FLAG_CXX},
     {"union", UNION, OP_NULL, 0},
     {"short", SHORT, OP_NULL, 0},
     {"const", CONST_KEYWORD, OP_NULL, 0},
+    {"restrict", RESTRICT, OP_NULL, FLAG_C | FLAG_SHADOW},
+    {"__restrict__", RESTRICT, OP_NULL, 0},
+    {"__restrict", RESTRICT, OP_NULL, 0},
+    {"_Atomic", ATOMIC, OP_NULL, 0},
     {"enum", ENUM, OP_NULL, 0},
     {"long", LONG, OP_NULL, 0},
+    {"_Complex", COMPLEX, OP_NULL, 0},
+    {"__complex__", COMPLEX, OP_NULL, 0},
+
     {"true", TRUEKEYWORD, OP_NULL, FLAG_CXX},
     {"int", INT_KEYWORD, OP_NULL, 0},
     {"new", NEW, OP_NULL, FLAG_CXX},
@@ -2488,18 +2551,13 @@ static const struct token ident_tokens[] =
 
 
 static void
-scan_macro_expansion (char *expansion)
+scan_macro_expansion (const char *expansion)
 {
-  char *copy;
-
   /* We'd better not be trying to push the stack twice.  */
   gdb_assert (! cpstate->macro_original_text);
 
-  /* Copy to the obstack, and then free the intermediate
-     expansion.  */
-  copy = (char *) obstack_copy0 (&cpstate->expansion_obstack, expansion,
-				 strlen (expansion));
-  xfree (expansion);
+  /* Copy to the obstack.  */
+  const char *copy = obstack_strdup (&cpstate->expansion_obstack, expansion);
 
   /* Save the old lexptr value, so we can return to it when we're done
      parsing the expanded text.  */
@@ -2569,12 +2627,11 @@ lex_one_token (struct parser_state *par_state, bool *is_quoted_name)
   /* Check if this is a macro invocation that we need to expand.  */
   if (! scanning_macro_expansion ())
     {
-      char *expanded = macro_expand_next (&pstate->lexptr,
-                                          standard_macro_lookup,
-                                          expression_macro_scope);
+      gdb::unique_xmalloc_ptr<char> expanded
+	= macro_expand_next (&pstate->lexptr, *expression_macro_scope);
 
-      if (expanded)
-        scan_macro_expansion (expanded);
+      if (expanded != nullptr)
+        scan_macro_expansion (expanded.get ());
     }
 
   pstate->prev_lexptr = pstate->lexptr;
@@ -2587,6 +2644,7 @@ lex_one_token (struct parser_state *par_state, bool *is_quoted_name)
 	if ((tokentab3[i].flags & FLAG_CXX) != 0
 	    && par_state->language ()->la_language != language_cplus)
 	  break;
+	gdb_assert ((tokentab3[i].flags & FLAG_C) == 0);
 
 	pstate->lexptr += 3;
 	yylval.opcode = tokentab3[i].opcode;
@@ -2600,6 +2658,7 @@ lex_one_token (struct parser_state *par_state, bool *is_quoted_name)
 	if ((tokentab2[i].flags & FLAG_CXX) != 0
 	    && par_state->language ()->la_language != language_cplus)
 	  break;
+	gdb_assert ((tokentab2[i].flags & FLAG_C) == 0);
 
 	pstate->lexptr += 2;
 	yylval.opcode = tokentab2[i].opcode;
@@ -2684,7 +2743,7 @@ lex_one_token (struct parser_state *par_state, bool *is_quoted_name)
     case '9':
       {
 	/* It's a number.  */
-	int got_dot = 0, got_e = 0, toktype;
+	int got_dot = 0, got_e = 0, got_p = 0, toktype;
 	const char *p = tokstart;
 	int hex = input_radix > 10;
 
@@ -2704,13 +2763,16 @@ lex_one_token (struct parser_state *par_state, bool *is_quoted_name)
 	    /* This test includes !hex because 'e' is a valid hex digit
 	       and thus does not indicate a floating point number when
 	       the radix is hex.  */
-	    if (!hex && !got_e && (*p == 'e' || *p == 'E'))
+	    if (!hex && !got_e && !got_p && (*p == 'e' || *p == 'E'))
 	      got_dot = got_e = 1;
+	    else if (!got_e && !got_p && (*p == 'p' || *p == 'P'))
+	      got_dot = got_p = 1;
 	    /* This test does not include !hex, because a '.' always indicates
 	       a decimal floating point number regardless of the radix.  */
 	    else if (!got_dot && *p == '.')
 	      got_dot = 1;
-	    else if (got_e && (p[-1] == 'e' || p[-1] == 'E')
+	    else if (((got_e && (p[-1] == 'e' || p[-1] == 'E'))
+		      || (got_p && (p[-1] == 'p' || p[-1] == 'P')))
 		     && (*p == '-' || *p == '+'))
 	      /* This is the sign of the exponent, not the end of the
 		 number.  */
@@ -2723,7 +2785,7 @@ lex_one_token (struct parser_state *par_state, bool *is_quoted_name)
 	      break;
 	  }
 	toktype = parse_number (par_state, tokstart, p - tokstart,
-				got_dot|got_e, &yylval);
+				got_dot | got_e | got_p, &yylval);
         if (toktype == ERROR)
 	  {
 	    char *err_copy = (char *) alloca (p - tokstart + 1);
@@ -2894,6 +2956,10 @@ lex_one_token (struct parser_state *par_state, bool *is_quoted_name)
 	if ((ident_tokens[i].flags & FLAG_CXX) != 0
 	    && par_state->language ()->la_language != language_cplus)
 	  break;
+	if ((ident_tokens[i].flags & FLAG_C) != 0
+	    && par_state->language ()->la_language != language_c
+	    && par_state->language ()->la_language != language_objc)
+	  break;
 
 	if ((ident_tokens[i].flags & FLAG_SHADOW) != 0)
 	  {
@@ -2947,7 +3013,7 @@ static int popping;
 
 /* Temporary storage for c_lex; this holds symbol names as they are
    built up.  */
-auto_obstack name_obstack;
+static auto_obstack name_obstack;
 
 /* Classify a NAME token.  The contents of the token are in `yylval'.
    Updates yylval and returns the new token type.  BLOCK is the block
@@ -2970,7 +3036,7 @@ classify_name (struct parser_state *par_state, const struct block *block,
   memset (&is_a_field_of_this, 0, sizeof (is_a_field_of_this));
 
   bsym = lookup_symbol (copy.c_str (), block, VAR_DOMAIN,
-			par_state->language ()->la_name_of_this
+			par_state->language ()->name_of_this ()
 			? &is_a_field_of_this : NULL);
 
   if (bsym.symbol && SYMBOL_CLASS (bsym.symbol) == LOC_BLOCK)
@@ -3292,9 +3358,9 @@ yylex (void)
   if (checkpoint > 0)
     {
       current.value.sval.ptr
-	= (const char *) obstack_copy0 (&cpstate->expansion_obstack,
-					current.value.sval.ptr,
-					current.value.sval.length);
+	= obstack_strndup (&cpstate->expansion_obstack,
+			   current.value.sval.ptr,
+			   current.value.sval.length);
 
       token_fifo[0] = current;
       if (checkpoint > 1)
@@ -3394,7 +3460,7 @@ c_print_token (FILE *file, int type, YYSTYPE value)
       parser_fprintf (file, "ssym<name=%s, sym=%s, field_of_this=%d>",
 		       copy_name (value.ssym.stoken).c_str (),
 		       (value.ssym.sym.symbol == NULL
-			? "(null)" : SYMBOL_PRINT_NAME (value.ssym.sym.symbol)),
+			? "(null)" : value.ssym.sym.symbol->print_name ()),
 		       value.ssym.is_a_field_of_this);
       break;
 

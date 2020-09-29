@@ -1,5 +1,5 @@
 /* Handling of inferior events for the event loop for GDB, the GNU debugger.
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
    Written by Elena Zannoni <ezannoni@cygnus.com> of Cygnus Solutions.
 
    This file is part of GDB.
@@ -20,7 +20,7 @@
 #include "defs.h"
 #include "inferior.h"
 #include "infrun.h"
-#include "event-loop.h"
+#include "gdbsupport/event-loop.h"
 #include "event-top.h"
 #include "inf-loop.h"
 #include "remote.h"
@@ -34,13 +34,12 @@
 /* General function to handle events in the inferior.  */
 
 void
-inferior_event_handler (enum inferior_event_type event_type, 
-			gdb_client_data client_data)
+inferior_event_handler (enum inferior_event_type event_type)
 {
   switch (event_type)
     {
     case INF_REG_EVENT:
-      fetch_inferior_event (client_data);
+      fetch_inferior_event ();
       break;
 
     case INF_EXEC_COMPLETE:

@@ -1,5 +1,5 @@
 /* Language independent support for printing types for GDB, the GNU debugger.
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -116,8 +116,6 @@ public:
   /* Create a new typedef-lookup hash table.  */
   typedef_hash_table ();
 
-  ~typedef_hash_table ();
-
   /* Copy a typedef hash.  */
   typedef_hash_table (const typedef_hash_table &);
 
@@ -144,7 +142,7 @@ private:
 
 
   /* The actual hash table.  */
-  htab_t m_table;
+  htab_up m_table;
 
   /* Storage for typedef_field objects that must be synthesized.  */
   auto_obstack m_storage;

@@ -1,6 +1,6 @@
 /* Scheme interface to types.
 
-   Copyright (C) 2008-2019 Free Software Foundation, Inc.
+   Copyright (C) 2008-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -26,9 +26,8 @@
 #include "gdbtypes.h"
 #include "objfiles.h"
 #include "language.h"
-#include "common/vec.h"
 #include "bcache.h"
-#include "dwarf2loc.h"
+#include "dwarf2/loc.h"
 #include "typeprint.h"
 #include "guile-internal.h"
 
@@ -388,20 +387,17 @@ static void
 save_objfile_types (struct objfile *objfile, void *datum)
 {
   htab_t htab = (htab_t) datum;
-  htab_t copied_types;
 
   if (!gdb_scheme_initialized)
     return;
 
-  copied_types = create_copied_types_hash (objfile);
+  htab_up copied_types = create_copied_types_hash (objfile);
 
   if (htab != NULL)
     {
-      htab_traverse_noresize (htab, tyscm_copy_type_recursive, copied_types);
+      htab_traverse_noresize (htab, tyscm_copy_type_recursive, copied_types.get ());
       htab_delete (htab);
     }
-
-  htab_delete (copied_types);
 }
 
 /* Administrivia for field smobs.  */
@@ -513,9 +509,9 @@ tyscm_field_smob_to_field (field_smob *f_smob)
   struct type *type = tyscm_field_smob_containing_type (f_smob);
 
   /* This should be non-NULL by construction.  */
-  gdb_assert (TYPE_FIELDS (type) != NULL);
+  gdb_assert (type->fields () != NULL);
 
-  return &TYPE_FIELD (type, f_smob->field_num);
+  return &type->field (f_smob->field_num);
 }
 
 /* Type smob accessors.  */
@@ -530,7 +526,7 @@ gdbscm_type_code (SCM self)
     = tyscm_get_type_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
   struct type *type = t_smob->type;
 
-  return scm_from_int (TYPE_CODE (type));
+  return scm_from_int (type->code ());
 }
 
 /* (type-fields <gdb:type>) -> list
@@ -561,7 +557,7 @@ gdbscm_type_fields (SCM self)
     containing_type_scm = tyscm_scm_from_type (containing_type);
 
   result = SCM_EOL;
-  for (i = 0; i < TYPE_NFIELDS (containing_type); ++i)
+  for (i = 0; i < containing_type->num_fields (); ++i)
     result = scm_cons (tyscm_make_field_smob (containing_type_scm, i), result);
 
   return scm_reverse_x (result, SCM_EOL);
@@ -578,10 +574,10 @@ gdbscm_type_tag (SCM self)
   struct type *type = t_smob->type;
   const char *tagname = nullptr;
 
-  if (TYPE_CODE (type) == TYPE_CODE_STRUCT
-      || TYPE_CODE (type) == TYPE_CODE_UNION
-      || TYPE_CODE (type) == TYPE_CODE_ENUM)
-    tagname = TYPE_NAME (type);
+  if (type->code () == TYPE_CODE_STRUCT
+      || type->code () == TYPE_CODE_UNION
+      || type->code () == TYPE_CODE_ENUM)
+    tagname = type->name ();
 
   if (tagname == nullptr)
     return SCM_BOOL_F;
@@ -598,9 +594,9 @@ gdbscm_type_name (SCM self)
     = tyscm_get_type_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
   struct type *type = t_smob->type;
 
-  if (!TYPE_NAME (type))
+  if (!type->name ())
     return SCM_BOOL_F;
-  return gdbscm_scm_from_c_string (TYPE_NAME (type));
+  return gdbscm_scm_from_c_string (type->name ());
 }
 
 /* (type-print-name <gdb:type>) -> string
@@ -686,17 +682,17 @@ tyscm_get_composite (struct type *type)
 	}
 
       GDBSCM_HANDLE_GDB_EXCEPTION (exc);
-      if (TYPE_CODE (type) != TYPE_CODE_PTR
-	  && TYPE_CODE (type) != TYPE_CODE_REF)
+      if (type->code () != TYPE_CODE_PTR
+	  && type->code () != TYPE_CODE_REF)
 	break;
       type = TYPE_TARGET_TYPE (type);
     }
 
   /* If this is not a struct, union, or enum type, raise TypeError
      exception.  */
-  if (TYPE_CODE (type) != TYPE_CODE_STRUCT
-      && TYPE_CODE (type) != TYPE_CODE_UNION
-      && TYPE_CODE (type) != TYPE_CODE_ENUM)
+  if (type->code () != TYPE_CODE_STRUCT
+      && type->code () != TYPE_CODE_UNION
+      && type->code () != TYPE_CODE_ENUM)
     return NULL;
 
   return type;
@@ -818,21 +814,18 @@ gdbscm_type_range (SCM self)
   /* Initialize these to appease GCC warnings.  */
   LONGEST low = 0, high = 0;
 
-  SCM_ASSERT_TYPE (TYPE_CODE (type) == TYPE_CODE_ARRAY
-		   || TYPE_CODE (type) == TYPE_CODE_STRING
-		   || TYPE_CODE (type) == TYPE_CODE_RANGE,
+  SCM_ASSERT_TYPE (type->code () == TYPE_CODE_ARRAY
+		   || type->code () == TYPE_CODE_STRING
+		   || type->code () == TYPE_CODE_RANGE,
 		   self, SCM_ARG1, FUNC_NAME, _("ranged type"));
 
-  switch (TYPE_CODE (type))
+  switch (type->code ())
     {
     case TYPE_CODE_ARRAY:
     case TYPE_CODE_STRING:
-      low = TYPE_LOW_BOUND (TYPE_INDEX_TYPE (type));
-      high = TYPE_HIGH_BOUND (TYPE_INDEX_TYPE (type));
-      break;
     case TYPE_CODE_RANGE:
-      low = TYPE_LOW_BOUND (type);
-      high = TYPE_HIGH_BOUND (type);
+      low = type->bounds ()->low.const_val ();
+      high = type->bounds ()->high.const_val ();
       break;
     }
 
@@ -970,7 +963,7 @@ gdbscm_type_num_fields (SCM self)
     gdbscm_out_of_range_error (FUNC_NAME, SCM_ARG1, self,
 			       _(not_composite_error));
 
-  return scm_from_long (TYPE_NFIELDS (type));
+  return scm_from_long (type->num_fields ());
 }
 
 /* (type-field <gdb:type> string) -> <gdb:field>
@@ -998,7 +991,7 @@ gdbscm_type_field (SCM self, SCM field_scm)
   {
     gdb::unique_xmalloc_ptr<char> field = gdbscm_scm_to_c_string (field_scm);
 
-    for (int i = 0; i < TYPE_NFIELDS (type); i++)
+    for (int i = 0; i < type->num_fields (); i++)
       {
 	const char *t_field_name = TYPE_FIELD_NAME (type, i);
 
@@ -1040,7 +1033,7 @@ gdbscm_type_has_field_p (SCM self, SCM field_scm)
     gdb::unique_xmalloc_ptr<char> field
       = gdbscm_scm_to_c_string (field_scm);
 
-    for (int i = 0; i < TYPE_NFIELDS (type); i++)
+    for (int i = 0; i < type->num_fields (); i++)
       {
 	const char *t_field_name = TYPE_FIELD_NAME (type, i);
 
@@ -1106,11 +1099,11 @@ gdbscm_type_next_field_x (SCM self)
   type = t_smob->type;
 
   SCM_ASSERT_TYPE (scm_is_signed_integer (progress,
-					  0, TYPE_NFIELDS (type)),
+					  0, type->num_fields ()),
 		   progress, SCM_ARG1, FUNC_NAME, _("integer"));
   field = scm_to_int (progress);
 
-  if (field < TYPE_NFIELDS (type))
+  if (field < type->num_fields ())
     {
       result = tyscm_make_field_smob (object, field);
       itscm_set_iterator_smob_progress_x (i_smob, scm_from_int (field + 1));
@@ -1148,8 +1141,8 @@ gdbscm_field_type (SCM self)
   struct field *field = tyscm_field_smob_to_field (f_smob);
 
   /* A field can have a NULL type in some situations.  */
-  if (FIELD_TYPE (*field))
-    return tyscm_scm_from_type (FIELD_TYPE (*field));
+  if (field->type ())
+    return tyscm_scm_from_type (field->type ());
   return SCM_BOOL_F;
 }
 
@@ -1164,7 +1157,7 @@ gdbscm_field_enumval (SCM self)
   struct field *field = tyscm_field_smob_to_field (f_smob);
   struct type *type = tyscm_field_smob_containing_type (f_smob);
 
-  SCM_ASSERT_TYPE (TYPE_CODE (type) == TYPE_CODE_ENUM,
+  SCM_ASSERT_TYPE (type->code () == TYPE_CODE_ENUM,
 		   self, SCM_ARG1, FUNC_NAME, _("enum type"));
 
   return scm_from_long (FIELD_ENUMVAL (*field));
@@ -1181,7 +1174,7 @@ gdbscm_field_bitpos (SCM self)
   struct field *field = tyscm_field_smob_to_field (f_smob);
   struct type *type = tyscm_field_smob_containing_type (f_smob);
 
-  SCM_ASSERT_TYPE (TYPE_CODE (type) != TYPE_CODE_ENUM,
+  SCM_ASSERT_TYPE (type->code () != TYPE_CODE_ENUM,
 		   self, SCM_ARG1, FUNC_NAME, _("non-enum type"));
 
   return scm_from_long (FIELD_BITPOS (*field));
@@ -1223,7 +1216,7 @@ gdbscm_field_baseclass_p (SCM self)
     = tyscm_get_field_smob_arg_unsafe (self, SCM_ARG1, FUNC_NAME);
   struct type *type = tyscm_field_smob_containing_type (f_smob);
 
-  if (TYPE_CODE (type) == TYPE_CODE_STRUCT)
+  if (type->code () == TYPE_CODE_STRUCT)
     return scm_from_bool (f_smob->field_num < TYPE_N_BASECLASSES (type));
   return SCM_BOOL_F;
 }
@@ -1246,7 +1239,7 @@ tyscm_lookup_typename (const char *type_name, const struct block *block)
       else if (startswith (type_name, "enum "))
 	type = lookup_enum (type_name + 5, NULL);
       else
-	type = lookup_typename (current_language, get_current_arch (),
+	type = lookup_typename (current_language,
 				type_name, block, 0);
     }
   catch (const gdb_exception &except)

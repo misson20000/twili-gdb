@@ -1,5 +1,5 @@
 /* List lines of source files for GDB, the GNU debugger.
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,7 +19,7 @@
 #ifndef SOURCE_H
 #define SOURCE_H
 
-#include "common/scoped_fd.h"
+#include "gdbsupport/scoped_fd.h"
 
 struct symtab;
 
@@ -75,11 +75,6 @@ extern scoped_fd find_and_open_source (const char *filename,
 /* Open a source file given a symtab S.  Returns a file descriptor or
    negative number for error.  */
 extern scoped_fd open_source_file (struct symtab *s);
-
-/* Open a source file given a symtab S (by calling open_source_file), then
-   ensure the line_charpos data is initialised for symtab S before
-   returning.  */
-extern scoped_fd open_source_file_with_line_charpos (struct symtab *s);
 
 extern gdb::unique_xmalloc_ptr<char> rewrite_source_path (const char *path);
 

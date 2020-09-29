@@ -1,6 +1,6 @@
 /* Traditional frame unwind support, for GDB the GNU Debugger.
 
-   Copyright (C) 2003-2019 Free Software Foundation, Inc.
+   Copyright (C) 2003-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -24,6 +24,7 @@
 #include "frame-unwind.h"
 #include "target.h"
 #include "value.h"
+#include "gdbarch.h"
 
 struct trad_frame_cache
 {

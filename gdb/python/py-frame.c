@@ -1,6 +1,6 @@
 /* Python interface to stack frames
 
-   Copyright (C) 2008-2019 Free Software Foundation, Inc.
+   Copyright (C) 2008-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -27,7 +27,6 @@
 #include "python-internal.h"
 #include "symfile.h"
 #include "objfiles.h"
-#include "user-regs.h"
 
 typedef struct {
   PyObject_HEAD
@@ -166,7 +165,7 @@ frapy_type (PyObject *self, PyObject *args)
       GDB_PY_HANDLE_EXCEPTION (except);
     }
 
-  return PyInt_FromLong (type);
+  return gdb_py_object_from_longest (type).release ();
 }
 
 /* Implementation of gdb.Frame.architecture (self) -> gdb.Architecture.
@@ -210,7 +209,7 @@ frapy_unwind_stop_reason (PyObject *self, PyObject *args)
 
   stop_reason = get_frame_unwind_stop_reason (frame);
 
-  return PyInt_FromLong (stop_reason);
+  return gdb_py_object_from_longest (stop_reason).release ();
 }
 
 /* Implementation of gdb.Frame.pc (self) -> Long.
@@ -233,7 +232,7 @@ frapy_pc (PyObject *self, PyObject *args)
       GDB_PY_HANDLE_EXCEPTION (except);
     }
 
-  return gdb_py_long_from_ulongest (pc);
+  return gdb_py_object_from_ulongest (pc).release ();
 }
 
 /* Implementation of gdb.Frame.read_register (self, register) -> gdb.Value.
@@ -242,12 +241,11 @@ frapy_pc (PyObject *self, PyObject *args)
 static PyObject *
 frapy_read_register (PyObject *self, PyObject *args)
 {
-  const char *regnum_str;
+  PyObject *pyo_reg_id;
   struct value *val = NULL;
 
-  if (!PyArg_ParseTuple (args, "s", &regnum_str))
+  if (!PyArg_UnpackTuple (args, "read_register", 1, 1, &pyo_reg_id))
     return NULL;
-
   try
     {
       struct frame_info *frame;
@@ -255,14 +253,18 @@ frapy_read_register (PyObject *self, PyObject *args)
 
       FRAPY_REQUIRE_VALID (self, frame);
 
-      regnum = user_reg_map_name_to_regnum (get_frame_arch (frame),
-                                            regnum_str,
-                                            strlen (regnum_str));
-      if (regnum >= 0)
-        val = value_of_register (regnum, frame);
+      if (!gdbpy_parse_register_id (get_frame_arch (frame), pyo_reg_id,
+				    &regnum))
+	{
+	  PyErr_SetString (PyExc_ValueError, "Bad register");
+	  return NULL;
+	}
+
+      gdb_assert (regnum >= 0);
+      val = value_of_register (regnum, frame);
 
       if (val == NULL)
-        PyErr_SetString (PyExc_ValueError, _("Unknown register."));
+        PyErr_SetString (PyExc_ValueError, _("Can't read register."));
     }
   catch (const gdb_exception &except)
     {

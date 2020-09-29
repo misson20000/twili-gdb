@@ -1,5 +1,5 @@
 /* Target-machine dependent code for Nios II, for GDB.
-   Copyright (C) 2012-2019 Free Software Foundation, Inc.
+   Copyright (C) 2012-2020 Free Software Foundation, Inc.
    Contributed by Peter Brookes (pbrookes@altera.com)
    and Andrew Draper (adraper@altera.com).
    Contributed by Mentor Graphics, Inc.
@@ -24,7 +24,7 @@
 #include "frame-unwind.h"
 #include "frame-base.h"
 #include "trad-frame.h"
-#include "dwarf2-frame.h"
+#include "dwarf2/frame.h"
 #include "symtab.h"
 #include "inferior.h"
 #include "gdbtypes.h"
@@ -52,19 +52,21 @@
 
 /* Control debugging information emitted in this file.  */
 
-static int nios2_debug = 0;
+static bool nios2_debug = false;
 
 /* The following structures are used in the cache for prologue
    analysis; see the reg_value and reg_saved tables in
    struct nios2_unwind_cache, respectively.  */
 
-/* struct reg_value is used to record that a register has the same value
-   as reg at the given offset from the start of a function.  */
+/* struct reg_value is used to record that a register has reg's initial
+   value at the start of a function plus the given constant offset.
+   If reg == 0, then the value is just the offset.
+   If reg < 0, then the value is unknown.  */
 
 struct reg_value
 {
   int reg;
-  unsigned int offset;
+  int offset;
 };
 
 /* struct reg_saved is used to record that a register value has been saved at
@@ -2234,7 +2236,7 @@ nios2_get_longjmp_target (struct frame_info *frame, CORE_ADDR *pc)
 static ULONGEST
 nios2_type_align (struct gdbarch *gdbarch, struct type *type)
 {
-  switch (TYPE_CODE (type))
+  switch (type->code ())
     {
     case TYPE_CODE_PTR:
     case TYPE_CODE_FUNC:
@@ -2258,11 +2260,11 @@ nios2_type_align (struct gdbarch *gdbarch, struct type *type)
 }
 
 /* Implement the gcc_target_options gdbarch method.  */
-static char *
+static std::string
 nios2_gcc_target_options (struct gdbarch *gdbarch)
 {
   /* GCC doesn't know "-m32".  */
-  return NULL;
+  return {};
 }
 
 /* Initialize the Nios II gdbarch.  */
@@ -2273,7 +2275,7 @@ nios2_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   struct gdbarch *gdbarch;
   struct gdbarch_tdep *tdep;
   int i;
-  struct tdesc_arch_data *tdesc_data = NULL;
+  tdesc_arch_data_up tdesc_data;
   const struct target_desc *tdesc = info.target_desc;
 
   if (!tdesc_has_registers (tdesc))
@@ -2295,14 +2297,11 @@ nios2_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
       valid_p = 1;
       
       for (i = 0; i < NIOS2_NUM_REGS; i++)
-	valid_p &= tdesc_numbered_register (feature, tdesc_data, i,
+	valid_p &= tdesc_numbered_register (feature, tdesc_data.get (), i,
 					    nios2_reg_names[i]);
 
       if (!valid_p)
-	{
-	  tdesc_data_cleanup (tdesc_data);
-	  return NULL;
-	}
+	return NULL;
     }
 
   /* Find a candidate among the list of pre-declared architectures.  */
@@ -2382,14 +2381,15 @@ nios2_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   /* Enable inferior call support.  */
   set_gdbarch_push_dummy_call (gdbarch, nios2_push_dummy_call);
 
-  if (tdesc_data)
-    tdesc_use_registers (gdbarch, tdesc, tdesc_data);
+  if (tdesc_data != nullptr)
+    tdesc_use_registers (gdbarch, tdesc, std::move (tdesc_data));
 
   return gdbarch;
 }
 
+void _initialize_nios2_tdep ();
 void
-_initialize_nios2_tdep (void)
+_initialize_nios2_tdep ()
 {
   gdbarch_register (bfd_arch_nios2, nios2_gdbarch_init, NULL);
   initialize_tdesc_nios2 ();

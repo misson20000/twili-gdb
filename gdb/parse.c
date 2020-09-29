@@ -1,6 +1,6 @@
 /* Parse expressions for GDB.
 
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    Modified from expread.y by the Department of Computer Science at the
    State University of New York at Buffalo, 1991.
@@ -50,7 +50,7 @@
 #include "objfiles.h"
 #include "user-regs.h"
 #include <algorithm>
-#include "common/gdb_optional.h"
+#include "gdbsupport/gdb_optional.h"
 
 /* Standard set of definitions for printing, dumping, prefixifying,
  * and evaluating expressions.  */
@@ -74,8 +74,8 @@ show_expressiondebug (struct ui_file *file, int from_tty,
 }
 
 
-/* Non-zero if an expression parser should set yydebug.  */
-int parser_debug;
+/* True if an expression parser should set yydebug.  */
+bool parser_debug;
 
 static void
 show_parserdebug (struct ui_file *file, int from_tty,
@@ -181,7 +181,7 @@ write_exp_elt_sym (struct expr_builder *ps, struct symbol *expelt)
   write_exp_elt (ps, &tmp);
 }
 
-void
+static void
 write_exp_elt_msym (struct expr_builder *ps, minimal_symbol *expelt)
 {
   union exp_element tmp;
@@ -762,8 +762,8 @@ void
 operator_length (const struct expression *expr, int endpos, int *oplenp,
 		 int *argsp)
 {
-  expr->language_defn->la_exp_desc->operator_length (expr, endpos,
-						     oplenp, argsp);
+  expr->language_defn->expression_ops ()->operator_length (expr, endpos,
+							   oplenp, argsp);
 }
 
 /* Default value for operator_length in exp_descriptor vectors.  */
@@ -817,7 +817,6 @@ operator_length_standard (const struct expression *expr, int endpos,
       break;
 
     case OP_FUNCALL:
-    case OP_F77_UNDETERMINED_ARGLIST:
       oplen = 3;
       args = 1 + longest_to_int (expr->elts[endpos - 2].longconst);
       break;
@@ -1098,7 +1097,7 @@ parse_exp_in_context (const char **stringptr, CORE_ADDR pc,
       struct symbol *func = block_linkage_function (block);
 
       if (func != NULL)
-        lang = language_def (SYMBOL_LANGUAGE (func));
+        lang = language_def (func->language ());
       if (lang == NULL || lang->la_language == language_unknown)
         lang = current_language;
     }
@@ -1119,7 +1118,7 @@ parse_exp_in_context (const char **stringptr, CORE_ADDR pc,
 
   try
     {
-      lang->la_parser (&ps);
+      lang->parser (&ps);
     }
   catch (const gdb_exception &except)
     {
@@ -1146,8 +1145,7 @@ parse_exp_in_context (const char **stringptr, CORE_ADDR pc,
   if (out_subexp)
     *out_subexp = subexp;
 
-  lang->la_post_parser (&result, void_context_p, ps.parse_completion,
-			tracker);
+  lang->post_parser (&result, void_context_p, ps.parse_completion, tracker);
 
   if (expressiondebug)
     dump_prefix_expression (result.get (), gdb_stdlog);
@@ -1241,14 +1239,6 @@ parse_expression_for_completion (const char *string,
   return value_type (val);
 }
 
-/* A post-parser that does nothing.  */
-
-void
-null_post_parser (expression_up *exp, int void_context_p, int completin,
-		  innermost_block_tracker *tracker)
-{
-}
-
 /* Parse floating point value P of length LEN.
    Return false if invalid, true if valid.
    The successfully parsed number is stored in DATA in
@@ -1340,7 +1330,7 @@ operator_check_standard (struct expression *exp, int pos,
 	  return 1;
 
 	/* Check objfile where is placed the code touching the variable.  */
-	objfile = lookup_objfile_from_block (block);
+	objfile = block_objfile (block);
 
 	type = SYMBOL_TYPE (symbol);
       }
@@ -1383,8 +1373,9 @@ exp_iterate (struct expression *exp,
       gdb_assert (oplen > 0);
 
       pos = endpos - oplen;
-      if (exp->language_defn->la_exp_desc->operator_check (exp, pos,
-							   objfile_func, data))
+      if (exp->language_defn->expression_ops ()->operator_check (exp, pos,
+								 objfile_func,
+								 data))
 	return 1;
 
       endpos = pos;
@@ -1436,8 +1427,9 @@ increase_expout_size (struct expr_builder *ps, size_t lenelt)
     }
 }
 
+void _initialize_parse ();
 void
-_initialize_parse (void)
+_initialize_parse ()
 {
   add_setshow_zuinteger_cmd ("expression", class_maintenance,
 			     &expressiondebug,

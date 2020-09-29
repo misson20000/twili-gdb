@@ -1,6 +1,6 @@
 /* Print in infix form a struct expression.
 
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -29,6 +29,7 @@
 #include "block.h"
 #include "objfiles.h"
 #include "valprint.h"
+#include "cli/cli-style.h"
 
 #include <ctype.h>
 
@@ -49,7 +50,27 @@ void
 print_subexp (struct expression *exp, int *pos,
 	      struct ui_file *stream, enum precedence prec)
 {
-  exp->language_defn->la_exp_desc->print_subexp (exp, pos, stream, prec);
+  exp->language_defn->expression_ops ()->print_subexp (exp, pos, stream,
+						       prec);
+}
+
+/* See parser-defs.h.  */
+
+void
+print_subexp_funcall (struct expression *exp, int *pos,
+		      struct ui_file *stream)
+{
+  (*pos) += 2;
+  unsigned nargs = longest_to_int (exp->elts[*pos].longconst);
+  print_subexp (exp, pos, stream, PREC_SUFFIX);
+  fputs_filtered (" (", stream);
+  for (unsigned tem = 0; tem < nargs; tem++)
+    {
+      if (tem != 0)
+	fputs_filtered (", ", stream);
+      print_subexp (exp, pos, stream, PREC_ABOVE_COMMA);
+    }
+  fputs_filtered (")", stream);
 }
 
 /* Standard implementation of print_subexp for use in language_defn
@@ -71,7 +92,7 @@ print_subexp_standard (struct expression *exp, int *pos,
   struct value *val;
   char *tempstr = NULL;
 
-  op_print_tab = exp->language_defn->la_op_print_tab;
+  op_print_tab = exp->language_defn->opcode_print_table ();
   pc = (*pos)++;
   opcode = exp->elts[pc].opcode;
   switch (opcode)
@@ -86,7 +107,7 @@ print_subexp_standard (struct expression *exp, int *pos,
     case OP_SCOPE:
       myprec = PREC_PREFIX;
       assoc = 0;
-      fputs_filtered (TYPE_NAME (exp->elts[pc + 1].type), stream);
+      fputs_filtered (exp->elts[pc + 1].type->name (), stream);
       fputs_filtered ("::", stream);
       nargs = longest_to_int (exp->elts[pc + 2].longconst);
       (*pos) += 4 + BYTES_TO_EXP_ELEM (nargs + 1);
@@ -125,19 +146,19 @@ print_subexp_standard (struct expression *exp, int *pos,
 	b = exp->elts[pc + 1].block;
 	if (b != NULL
 	    && BLOCK_FUNCTION (b) != NULL
-	    && SYMBOL_PRINT_NAME (BLOCK_FUNCTION (b)) != NULL)
+	    && BLOCK_FUNCTION (b)->print_name () != NULL)
 	  {
-	    fputs_filtered (SYMBOL_PRINT_NAME (BLOCK_FUNCTION (b)), stream);
+	    fputs_filtered (BLOCK_FUNCTION (b)->print_name (), stream);
 	    fputs_filtered ("::", stream);
 	  }
-	fputs_filtered (SYMBOL_PRINT_NAME (exp->elts[pc + 2].symbol), stream);
+	fputs_filtered (exp->elts[pc + 2].symbol->print_name (), stream);
       }
       return;
 
     case OP_VAR_MSYM_VALUE:
       {
 	(*pos) += 3;
-	fputs_filtered (MSYMBOL_PRINT_NAME (exp->elts[pc + 2].msymbol), stream);
+	fputs_filtered (exp->elts[pc + 2].msymbol->print_name (), stream);
       }
       return;
 
@@ -153,7 +174,7 @@ print_subexp_standard (struct expression *exp, int *pos,
       {
 	(*pos) += 2;
 	fprintf_filtered (stream, "%s@entry",
-			  SYMBOL_PRINT_NAME (exp->elts[pc + 1].symbol));
+			  exp->elts[pc + 1].symbol->print_name ());
       }
       return;
 
@@ -186,18 +207,7 @@ print_subexp_standard (struct expression *exp, int *pos,
       return;
 
     case OP_FUNCALL:
-    case OP_F77_UNDETERMINED_ARGLIST:
-      (*pos) += 2;
-      nargs = longest_to_int (exp->elts[pc + 1].longconst);
-      print_subexp (exp, pos, stream, PREC_SUFFIX);
-      fputs_filtered (" (", stream);
-      for (tem = 0; tem < nargs; tem++)
-	{
-	  if (tem != 0)
-	    fputs_filtered (", ", stream);
-	  print_subexp (exp, pos, stream, PREC_ABOVE_COMMA);
-	}
-      fputs_filtered (")", stream);
+      print_subexp_funcall (exp, pos, stream);
       return;
 
     case OP_NAME:
@@ -240,18 +250,14 @@ print_subexp_standard (struct expression *exp, int *pos,
 
     case OP_OBJC_MSGCALL:
       {			/* Objective C message (method) call.  */
-	gdb::unique_xmalloc_ptr<char> selector;
-
 	(*pos) += 3;
 	nargs = longest_to_int (exp->elts[pc + 2].longconst);
 	fprintf_unfiltered (stream, "[");
 	print_subexp (exp, pos, stream, PREC_SUFFIX);
-	if (0 == target_read_string (exp->elts[pc + 1].longconst,
-				     &selector, 1024, NULL))
-	  {
-	    error (_("bad selector"));
-	    return;
-	  }
+	gdb::unique_xmalloc_ptr<char> selector
+	  = target_read_string (exp->elts[pc + 1].longconst, 1024);
+	if (selector == nullptr)
+	  error (_("bad selector"));
 	if (nargs)
 	  {
 	    char *s, *nextS;
@@ -447,7 +453,7 @@ print_subexp_standard (struct expression *exp, int *pos,
       (*pos) += 2;
       if ((int) prec > (int) PREC_PREFIX)
 	fputs_filtered ("(", stream);
-      if (TYPE_CODE (exp->elts[pc + 1].type) == TYPE_CODE_FUNC
+      if (exp->elts[pc + 1].type->code () == TYPE_CODE_FUNC
 	  && exp->elts[pc + 3].opcode == OP_LONG)
 	{
 	  struct value_print_options opts;
@@ -507,11 +513,12 @@ print_subexp_standard (struct expression *exp, int *pos,
 
     case OP_THIS:
       ++(*pos);
-      if (exp->language_defn->la_name_of_this)
-	fputs_filtered (exp->language_defn->la_name_of_this, stream);
+      if (exp->language_defn->name_of_this () != NULL)
+	fputs_filtered (exp->language_defn->name_of_this (), stream);
       else
-	fprintf_filtered (stream, _("<language %s has no 'this'>"),
-			  exp->language_defn->la_name);
+	fprintf_styled (stream, metadata_style.style (),
+			_("<language %s has no 'this'>"),
+			exp->language_defn->name ());
       return;
 
       /* Modula-2 ops */
@@ -670,7 +677,7 @@ op_string (enum exp_opcode op)
   int tem;
   const struct op_print *op_print_tab;
 
-  op_print_tab = current_language->la_op_print_tab;
+  op_print_tab = current_language->opcode_print_table ();
   for (tem = 0; op_print_tab[tem].opcode != OP_NULL; tem++)
     if (op_print_tab[tem].opcode == op)
       return op_print_tab[tem].string;
@@ -694,7 +701,7 @@ op_name (struct expression *exp, enum exp_opcode opcode)
 		 unsigned (opcode));
       return cell;
     }
-  return exp->language_defn->la_exp_desc->op_name (opcode);
+  return exp->language_defn->expression_ops ()->op_name (opcode);
 }
 
 /* Default name for the standard operator OPCODE (i.e., one defined in
@@ -736,7 +743,7 @@ dump_raw_expression (struct expression *exp, struct ui_file *stream,
   if (note)
     fprintf_filtered (stream, ", %s:", note);
   fprintf_filtered (stream, "\n\tLanguage %s, %d elements, %ld bytes each.\n",
-		    exp->language_defn->la_name, exp->nelts,
+		    exp->language_defn->name (), exp->nelts,
 		    (long) sizeof (union exp_element));
   fprintf_filtered (stream, "\t%5s  %20s  %16s  %s\n", "Index", "Opcode",
 		    "Hex Value", "String Value");
@@ -795,7 +802,24 @@ dump_subexp (struct expression *exp, struct ui_file *stream, int elt)
 static int
 dump_subexp_body (struct expression *exp, struct ui_file *stream, int elt)
 {
-  return exp->language_defn->la_exp_desc->dump_subexp_body (exp, stream, elt);
+  return exp->language_defn->expression_ops ()->dump_subexp_body (exp, stream,
+								  elt);
+}
+
+/* See parser-defs.h.  */
+
+int
+dump_subexp_body_funcall (struct expression *exp,
+			  struct ui_file *stream, int elt)
+{
+  int nargs = longest_to_int (exp->elts[elt].longconst);
+  fprintf_filtered (stream, "Number of args: %d", nargs);
+  elt += 2;
+
+  for (int i = 1; i <= nargs + 1; i++)
+    elt = dump_subexp (exp, stream, elt);
+
+  return elt;
 }
 
 /* Default value for subexp_body in exp_descriptor vector.  */
@@ -897,7 +921,7 @@ dump_subexp_body_standard (struct expression *exp,
       fprintf_filtered (stream, ", symbol @");
       gdb_print_host_address (exp->elts[elt + 1].symbol, stream);
       fprintf_filtered (stream, " (%s)",
-			SYMBOL_PRINT_NAME (exp->elts[elt + 1].symbol));
+			exp->elts[elt + 1].symbol->print_name ());
       elt += 3;
       break;
     case OP_VAR_MSYM_VALUE:
@@ -906,14 +930,14 @@ dump_subexp_body_standard (struct expression *exp,
       fprintf_filtered (stream, ", msymbol @");
       gdb_print_host_address (exp->elts[elt + 1].msymbol, stream);
       fprintf_filtered (stream, " (%s)",
-			MSYMBOL_PRINT_NAME (exp->elts[elt + 1].msymbol));
+			exp->elts[elt + 1].msymbol->print_name ());
       elt += 3;
       break;
     case OP_VAR_ENTRY_VALUE:
       fprintf_filtered (stream, "Entry value of symbol @");
       gdb_print_host_address (exp->elts[elt].symbol, stream);
       fprintf_filtered (stream, " (%s)",
-			SYMBOL_PRINT_NAME (exp->elts[elt].symbol));
+			exp->elts[elt].symbol->print_name ());
       elt += 2;
       break;
     case OP_LAST:
@@ -933,18 +957,7 @@ dump_subexp_body_standard (struct expression *exp,
       elt += 2;
       break;
     case OP_FUNCALL:
-    case OP_F77_UNDETERMINED_ARGLIST:
-      {
-	int i, nargs;
-
-	nargs = longest_to_int (exp->elts[elt].longconst);
-
-	fprintf_filtered (stream, "Number of args: %d", nargs);
-	elt += 2;
-
-	for (i = 1; i <= nargs + 1; i++)
-	  elt = dump_subexp (exp, stream, elt);
-      }
+      elt = dump_subexp_body_funcall (exp, stream, elt);
       break;
     case OP_ARRAY:
       {
@@ -1161,7 +1174,7 @@ dump_prefix_expression (struct expression *exp, struct ui_file *stream)
   fputs_filtered (", after conversion to prefix form:\nExpression: `", stream);
   print_expression (exp, stream);
   fprintf_filtered (stream, "'\n\tLanguage %s, %d elements, %ld bytes each.\n",
-		    exp->language_defn->la_name, exp->nelts,
+		    exp->language_defn->name (), exp->nelts,
 		    (long) sizeof (union exp_element));
   fputs_filtered ("\n", stream);
 

@@ -1,6 +1,6 @@
 /* MI Command Set for GDB, the GNU debugger.
 
-   Copyright (C) 2000-2019 Free Software Foundation, Inc.
+   Copyright (C) 2000-2020 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions (a Red Hat company).
 
@@ -94,6 +94,12 @@ extern mi_cmd_argv_ftype mi_cmd_stack_list_locals;
 extern mi_cmd_argv_ftype mi_cmd_stack_list_variables;
 extern mi_cmd_argv_ftype mi_cmd_stack_select_frame;
 extern mi_cmd_argv_ftype mi_cmd_symbol_list_lines;
+extern mi_cmd_argv_ftype mi_cmd_symbol_info_functions;
+extern mi_cmd_argv_ftype mi_cmd_symbol_info_module_functions;
+extern mi_cmd_argv_ftype mi_cmd_symbol_info_module_variables;
+extern mi_cmd_argv_ftype mi_cmd_symbol_info_modules;
+extern mi_cmd_argv_ftype mi_cmd_symbol_info_types;
+extern mi_cmd_argv_ftype mi_cmd_symbol_info_variables;
 extern mi_cmd_argv_ftype mi_cmd_target_detach;
 extern mi_cmd_argv_ftype mi_cmd_target_file_get;
 extern mi_cmd_argv_ftype mi_cmd_target_file_put;

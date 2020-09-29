@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2019 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -77,7 +77,7 @@ target_dcache_get_or_init (void)
 }
 
 /* The option sets this.  */
-static int stack_cache_enabled_1 = 1;
+static bool stack_cache_enabled_1 = true;
 /* And set_stack_cache updates this.
    The reason for the separation is so that we don't flush the cache for
    on->on transitions.  */
@@ -114,7 +114,7 @@ stack_cache_enabled_p (void)
 
 /* The option sets this.  */
 
-static int code_cache_enabled_1 = 1;
+static bool code_cache_enabled_1 = true;
 
 /* And set_code_cache updates this.
    The reason for the separation is so that we don't flush the cache for
@@ -152,8 +152,9 @@ code_cache_enabled_p (void)
   return code_cache_enabled;
 }
 
+void _initialize_target_dcache ();
 void
-_initialize_target_dcache (void)
+_initialize_target_dcache ()
 {
   add_setshow_boolean_cmd ("stack-cache", class_support,
 			   &stack_cache_enabled_1, _("\

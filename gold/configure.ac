@@ -1,6 +1,6 @@
 dnl Process this file with autoconf to produce a configure script.
 dnl
-dnl   Copyright (C) 2006-2019 Free Software Foundation, Inc.
+dnl   Copyright (C) 2006-2020 Free Software Foundation, Inc.
 dnl
 dnl This file is free software; you can redistribute it and/or modify
 dnl it under the terms of the GNU General Public License as published by
@@ -601,6 +601,9 @@ AC_CHECK_HEADERS(unordered_set unordered_map)
 AC_CHECK_HEADERS(tr1/unordered_set tr1/unordered_map)
 AC_CHECK_HEADERS(ext/hash_map ext/hash_set)
 AC_CHECK_HEADERS(byteswap.h)
+
+dnl Check for bswap_{16,32,64}
+AC_CHECK_DECLS([bswap_16, bswap_32, bswap_64], [], [], [[#include <byteswap.h>]])
 
 dnl When plugins enabled dynamic loader interface is required. Check headers
 dnl which may provide this interface. Add the necessary library to link.

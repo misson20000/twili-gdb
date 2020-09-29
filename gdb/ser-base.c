@@ -1,6 +1,6 @@
 /* Generic serial interface functions.
 
-   Copyright (C) 1992-2019 Free Software Foundation, Inc.
+   Copyright (C) 1992-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,10 +20,10 @@
 #include "defs.h"
 #include "serial.h"
 #include "ser-base.h"
-#include "event-loop.h"
+#include "gdbsupport/event-loop.h"
 
-#include "gdb_select.h"
-#include "common/gdb_sys_time.h"
+#include "gdbsupport/gdb_select.h"
+#include "gdbsupport/gdb_sys_time.h"
 #ifdef USE_WIN32API
 #include <winsock2.h>
 #endif
@@ -43,17 +43,18 @@ static handler_func fd_event;
 
 /* Value of scb->async_state: */
 enum {
-  /* >= 0 (TIMER_SCHEDULED) */
-  /* The ID of the currently scheduled timer event.  This state is
-     rarely encountered.  Timer events are one-off so as soon as the
-     event is delivered the state is shanged to NOTHING_SCHEDULED.  */
-  FD_SCHEDULED = -1,
+  /* When >= 0, this contains the ID of the currently scheduled timer event.
+     This state is rarely encountered.  Timer events are one-off so as soon as
+     the event is delivered the state is changed to NOTHING_SCHEDULED.  */
+
   /* The fd_event() handler is scheduled.  It is called when ever the
      file descriptor becomes ready.  */
-  NOTHING_SCHEDULED = -2
+  FD_SCHEDULED = -1,
+
   /* Either no task is scheduled (just going into ASYNC mode) or a
      timer event has just gone off and the current state has been
      forced into nothing scheduled.  */
+  NOTHING_SCHEDULED = -2
 };
 
 /* Identify and schedule the next ASYNC task based on scb->async_state
@@ -191,7 +192,7 @@ fd_event (int error, void *context)
 /* PUSH_EVENT: The input FIFO is non-empty (or there is a pending
    error).  Nag the client until all the data has been read.  In the
    case of errors, the client will need to close or de-async the
-   device before naging stops.  */
+   device before nagging stops.  */
 
 static void
 push_event (void *context)

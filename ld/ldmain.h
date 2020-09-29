@@ -1,5 +1,5 @@
 /* ldmain.h -
-   Copyright (C) 1991-2019 Free Software Foundation, Inc.
+   Copyright (C) 1991-2020 Free Software Foundation, Inc.
 
    This file is part of the GNU Binutils.
 
@@ -58,5 +58,6 @@ extern void add_ysym (const char *);
 extern void add_wrap (const char *);
 extern void add_ignoresym (struct bfd_link_info *, const char *);
 extern void add_keepsyms_file (const char *);
+extern void track_dependency_files (const char *);
 
 #endif

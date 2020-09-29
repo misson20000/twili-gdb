@@ -1,6 +1,6 @@
 /* Target-dependent code for GNU/Linux AArch64.
 
-   Copyright (C) 2009-2019 Free Software Foundation, Inc.
+   Copyright (C) 2009-2020 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GDB.
@@ -21,7 +21,6 @@
 #include "defs.h"
 
 #include "gdbarch.h"
-#include "arch-utils.h"
 #include "glibc-tdep.h"
 #include "linux-tdep.h"
 #include "aarch64-tdep.h"
@@ -31,12 +30,11 @@
 #include "symtab.h"
 #include "tramp-frame.h"
 #include "trad-frame.h"
+#include "target/target.h"
 
-#include "inferior.h"
 #include "regcache.h"
 #include "regset.h"
 
-#include "cli/cli-utils.h"
 #include "stap-probe.h"
 #include "parser-defs.h"
 #include "user-regs.h"
@@ -45,8 +43,6 @@
 
 #include "record-full.h"
 #include "linux-record.h"
-#include "auxv.h"
-#include "elf/common.h"
 
 /* Signal frame handling.
 
@@ -452,7 +448,7 @@ aarch64_linux_core_read_vq (struct gdbarch *gdbarch, bfd *abfd)
       return 0;
     }
 
-  size_t size = bfd_section_size (abfd, sve_section);
+  size_t size = bfd_section_size (sve_section);
 
   /* Check extended state size.  */
   if (size < SVE_HEADER_SIZE)
@@ -586,7 +582,7 @@ aarch64_linux_collect_sve_regset (const struct regset *regset,
 			    size - SVE_HEADER_SIZE);
 }
 
-/* Implement the "regset_from_core_section" gdbarch method.  */
+/* Implement the "iterate_over_regset_sections" gdbarch method.  */
 
 static void
 aarch64_linux_iterate_over_regset_sections (struct gdbarch *gdbarch,
@@ -1347,7 +1343,7 @@ aarch64_linux_get_syscall_number (struct gdbarch *gdbarch, thread_info *thread)
      This function will only ever get called when stopped at the entry or exit
      of a syscall, so by checking for 0 in x0 (arg0/retval), x1 (arg1), x8
      (syscall), x29 (FP) and x30 (LR) we can infer:
-     1) Either inferior is at exit from sucessful execve.
+     1) Either inferior is at exit from successful execve.
      2) Or inferior is at entry to a call to io_setup with invalid arguments and
 	a corrupted FP and LR.
      It should be safe enough to assume case 1.  */
@@ -1429,11 +1425,11 @@ aarch64_linux_syscall_record (struct regcache *regcache,
 
 /* Implement the "gcc_target_options" gdbarch method.  */
 
-static char *
+static std::string
 aarch64_linux_gcc_target_options (struct gdbarch *gdbarch)
 {
   /* GCC doesn't know "-m64".  */
-  return NULL;
+  return {};
 }
 
 static void
@@ -1658,7 +1654,7 @@ aarch64_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_get_syscall_number (gdbarch, aarch64_linux_get_syscall_number);
 
   /* Displaced stepping.  */
-  set_gdbarch_max_insn_length (gdbarch, 4 * DISPLACED_MODIFIED_INSNS);
+  set_gdbarch_max_insn_length (gdbarch, 4 * AARCH64_DISPLACED_MODIFIED_INSNS);
   set_gdbarch_displaced_step_copy_insn (gdbarch,
 					aarch64_displaced_step_copy_insn);
   set_gdbarch_displaced_step_fixup (gdbarch, aarch64_displaced_step_fixup);
@@ -1669,8 +1665,9 @@ aarch64_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_gcc_target_options (gdbarch, aarch64_linux_gcc_target_options);
 }
 
+void _initialize_aarch64_linux_tdep ();
 void
-_initialize_aarch64_linux_tdep (void)
+_initialize_aarch64_linux_tdep ()
 {
   gdbarch_register_osabi (bfd_arch_aarch64, 0, GDB_OSABI_LINUX,
 			  aarch64_linux_init_abi);

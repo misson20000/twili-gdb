@@ -1,6 +1,6 @@
 /* Python interface to breakpoints
 
-   Copyright (C) 2008-2019 Free Software Foundation, Inc.
+   Copyright (C) 2008-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -379,7 +379,6 @@ bppy_set_hit_count (PyObject *self, PyObject *newvalue, void *closure)
 static PyObject *
 bppy_get_location (PyObject *self, void *closure)
 {
-  const char *str;
   gdbpy_breakpoint_object *obj = (gdbpy_breakpoint_object *) self;
 
   BPPY_REQUIRE_VALID (obj);
@@ -387,12 +386,7 @@ bppy_get_location (PyObject *self, void *closure)
   if (obj->bp->type != bp_breakpoint)
     Py_RETURN_NONE;
 
-  struct event_location *location = obj->bp->location.get ();
-  /* "catch throw" makes a breakpoint of type bp_breakpoint that does
-     not have a location.  */
-  if (location == nullptr)
-    Py_RETURN_NONE;
-  str = event_location_to_string (location);
+  const char *str = event_location_to_string (obj->bp->location.get ());
   if (! str)
     str = "";
   return host_string_to_python_string (str).release ();
@@ -558,7 +552,7 @@ bppy_get_type (PyObject *self, void *closure)
 
   BPPY_REQUIRE_VALID (self_bp);
 
-  return PyInt_FromLong (self_bp->bp->type);
+  return gdb_py_object_from_longest (self_bp->bp->type).release ();
 }
 
 /* Python function to get the visibility of the breakpoint.  */
@@ -619,7 +613,7 @@ bppy_get_number (PyObject *self, void *closure)
 
   BPPY_REQUIRE_VALID (self_bp);
 
-  return PyInt_FromLong (self_bp->number);
+  return gdb_py_object_from_longest (self_bp->number).release ();
 }
 
 /* Python function to get the breakpoint's thread ID.  */
@@ -633,7 +627,7 @@ bppy_get_thread (PyObject *self, void *closure)
   if (self_bp->bp->thread == -1)
     Py_RETURN_NONE;
 
-  return PyInt_FromLong (self_bp->bp->thread);
+  return gdb_py_object_from_longest (self_bp->bp->thread).release ();
 }
 
 /* Python function to get the breakpoint's task ID (in Ada).  */
@@ -647,7 +641,7 @@ bppy_get_task (PyObject *self, void *closure)
   if (self_bp->bp->task == 0)
     Py_RETURN_NONE;
 
-  return PyInt_FromLong (self_bp->bp->task);
+  return gdb_py_object_from_longest (self_bp->bp->task).release ();
 }
 
 /* Python function to get the breakpoint's hit count.  */
@@ -658,7 +652,7 @@ bppy_get_hit_count (PyObject *self, void *closure)
 
   BPPY_REQUIRE_VALID (self_bp);
 
-  return PyInt_FromLong (self_bp->bp->hit_count);
+  return gdb_py_object_from_longest (self_bp->bp->hit_count).release ();
 }
 
 /* Python function to get the breakpoint's ignore count.  */
@@ -669,7 +663,7 @@ bppy_get_ignore_count (PyObject *self, void *closure)
 
   BPPY_REQUIRE_VALID (self_bp);
 
-  return PyInt_FromLong (self_bp->bp->ignore_count);
+  return gdb_py_object_from_longest (self_bp->bp->ignore_count).release ();
 }
 
 /* Internal function to validate the Python parameters/keywords
@@ -834,13 +828,16 @@ bppy_init (PyObject *self, PyObject *args, PyObject *kwargs)
 		location = new_explicit_location (&explicit_loc);
 	      }
 
+	    const struct breakpoint_ops *ops =
+	      breakpoint_ops_for_event_location (location.get (), false);
+
 	    create_breakpoint (python_gdbarch,
 			       location.get (), NULL, -1, NULL,
 			       0,
 			       temporary_bp, bp_breakpoint,
 			       0,
 			       AUTO_BOOLEAN_TRUE,
-			       &bkpt_breakpoint_ops,
+			       ops,
 			       0, 1, internal_bp, 0);
 	    break;
 	  }
@@ -877,10 +874,9 @@ bppy_init (PyObject *self, PyObject *args, PyObject *kwargs)
 
 
 
-static int
-build_bp_list (struct breakpoint *b, void *arg)
+static bool
+build_bp_list (struct breakpoint *b, PyObject *list)
 {
-  PyObject *list = (PyObject *) arg;
   PyObject *bp = (PyObject *) b->py_bp_object;
   int iserr = 0;
 
@@ -892,9 +888,9 @@ build_bp_list (struct breakpoint *b, void *arg)
     iserr = PyList_Append (list, bp);
 
   if (iserr == -1)
-    return 1;
+    return true;
 
-  return 0;
+  return false;
 }
 
 /* Static function to return a tuple holding all breakpoints.  */
@@ -912,7 +908,11 @@ gdbpy_breakpoints (PyObject *self, PyObject *args)
   /* If iterate_over_breakpoints returns non NULL it signals an error
      condition.  In that case abandon building the list and return
      NULL.  */
-  if (iterate_over_breakpoints (build_bp_list, list.get ()) != NULL)
+  auto callback = [&] (breakpoint *bp)
+    {
+      return build_bp_list(bp, list.get ());
+    };
+  if (iterate_over_breakpoints (callback) != NULL)
     return NULL;
 
   return PyList_AsTuple (list.get ());
@@ -1020,6 +1020,7 @@ gdbpy_breakpoint_created (struct breakpoint *bp)
   if (bppy_pending_object)
     {
       newbp = bppy_pending_object;
+      Py_INCREF (newbp);
       bppy_pending_object = NULL;
     }
   else
@@ -1030,7 +1031,6 @@ gdbpy_breakpoint_created (struct breakpoint *bp)
       newbp->bp = bp;
       newbp->bp->py_bp_object = newbp;
       newbp->is_finish_bp = 0;
-      Py_INCREF (newbp);
       ++bppy_live;
     }
   else

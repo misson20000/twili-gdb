@@ -1,6 +1,6 @@
 /* Convert types from GDB to GCC
 
-   Copyright (C) 2014-2019 Free Software Foundation, Inc.
+   Copyright (C) 2014-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,11 +19,11 @@
 
 
 #include "defs.h"
-#include "common/preprocessor.h"
+#include "gdbsupport/preprocessor.h"
 #include "gdbtypes.h"
 #include "compile-internal.h"
 #include "compile-cplus.h"
-#include "common/gdb_assert.h"
+#include "gdbsupport/gdb_assert.h"
 #include "symtab.h"
 #include "source.h"
 #include "cp-support.h"
@@ -41,11 +41,11 @@ const char *compile_cplus_instance::m_default_cflags = "-std=gnu++11";
 
 /* Flag to enable internal debugging.  */
 
-static int debug_compile_cplus_types = 0;
+static bool debug_compile_cplus_types = false;
 
 /* Flag to enable internal scope switching debugging.  */
 
-static int debug_compile_cplus_scopes = 0;
+static bool debug_compile_cplus_scopes = false;
 
 /* Forward declarations.  */
 
@@ -88,7 +88,7 @@ get_field_access_flag (const struct type *type, int num)
 enum gcc_cp_symbol_kind
 get_method_access_flag (const struct type *type, int fni, int num)
 {
-  gdb_assert (TYPE_CODE (type) == TYPE_CODE_STRUCT);
+  gdb_assert (type->code () == TYPE_CODE_STRUCT);
 
   /* If this type was not declared a class, everything is public.  */
   if (!TYPE_DECLARED_CLASS (type))
@@ -112,7 +112,7 @@ debug_print_scope (const compile_scope &scope)
   for (const auto &comp: scope)
     {
       const char *symbol = (comp.bsymbol.symbol != nullptr
-			    ? SYMBOL_NATURAL_NAME (comp.bsymbol.symbol)
+			    ? comp.bsymbol.symbol->natural_name ()
 			    : "<none>");
 
       printf_unfiltered ("\tname = %s, symbol = %s\n", comp.name.c_str (),
@@ -161,7 +161,7 @@ type_name_to_scope (const char *type_name, const struct block *block)
 
 	  scope.push_back (comp);
 
-	  if (TYPE_CODE (SYMBOL_TYPE (bsymbol.symbol)) != TYPE_CODE_NAMESPACE)
+	  if (SYMBOL_TYPE (bsymbol.symbol)->code () != TYPE_CODE_NAMESPACE)
 	    {
 	      /* We're done.  */
 	      break;
@@ -271,7 +271,7 @@ compile_cplus_instance::enter_scope (compile_scope &&new_scope)
 	(m_scopes.back ().begin (), m_scopes.back ().end () - 1,
 	 [this] (const scope_component &comp)
 	 {
-	  gdb_assert (TYPE_CODE (SYMBOL_TYPE (comp.bsymbol.symbol))
+	  gdb_assert (SYMBOL_TYPE (comp.bsymbol.symbol)->code ()
 		      == TYPE_CODE_NAMESPACE);
 
 	  const char *ns = (comp.name == CP_ANONYMOUS_NAMESPACE_STR ? nullptr
@@ -313,7 +313,7 @@ compile_cplus_instance::leave_scope ()
       std::for_each
 	(current.begin (),current.end () - 1,
 	 [this] (const scope_component &comp) {
-	  gdb_assert (TYPE_CODE (SYMBOL_TYPE (comp.bsymbol.symbol))
+	  gdb_assert (SYMBOL_TYPE (comp.bsymbol.symbol)->code ()
 		      == TYPE_CODE_NAMESPACE);
 	  this->plugin ().pop_binding_level (comp.name.c_str ());
 	});
@@ -364,7 +364,7 @@ compile_cplus_instance::new_scope (const char *type_name, struct type *type)
     }
   else
     {
-      if (TYPE_NAME (type) == nullptr)
+      if (type->name () == nullptr)
 	{
 	  /* Anonymous type  */
 
@@ -383,8 +383,8 @@ compile_cplus_instance::new_scope (const char *type_name, struct type *type)
 	{
 	  scope_component comp
 	    = {
-	        decl_name (TYPE_NAME (type)).get (),
-		lookup_symbol (TYPE_NAME (type), block (), VAR_DOMAIN, nullptr)
+	        decl_name (type->name ()).get (),
+		lookup_symbol (type->name (), block (), VAR_DOMAIN, nullptr)
 	      };
 	  scope.push_back (comp);
 	}
@@ -413,7 +413,7 @@ compile_cplus_convert_reference (compile_cplus_instance *instance,
   gcc_type target = instance->convert_type (TYPE_TARGET_TYPE (type));
 
   enum gcc_cp_ref_qualifiers quals = GCC_CP_REF_QUAL_NONE;
-  switch (TYPE_CODE (type))
+  switch (type->code ())
     {
     case TYPE_CODE_REF:
       quals = GCC_CP_REF_QUAL_LVALUE;
@@ -453,10 +453,10 @@ static gcc_type
 compile_cplus_convert_array (compile_cplus_instance *instance,
 			     struct type *type)
 {
-  struct type *range = TYPE_INDEX_TYPE (type);
+  struct type *range = type->index_type ();
   gcc_type element_type = instance->convert_type (TYPE_TARGET_TYPE (type));
 
-  if (TYPE_LOW_BOUND_KIND (range) != PROP_CONST)
+  if (range->bounds ()->low.kind () != PROP_CONST)
     {
       const char *s = _("array type with non-constant"
 			" lower bound is not supported");
@@ -464,7 +464,7 @@ compile_cplus_convert_array (compile_cplus_instance *instance,
       return instance->plugin ().error (s);
     }
 
-  if (TYPE_LOW_BOUND (range) != 0)
+  if (range->bounds ()->low.const_val () != 0)
     {
       const char *s = _("cannot convert array type with "
 			"non-zero lower bound to C");
@@ -472,10 +472,10 @@ compile_cplus_convert_array (compile_cplus_instance *instance,
       return instance->plugin ().error (s);
     }
 
-  if (TYPE_HIGH_BOUND_KIND (range) == PROP_LOCEXPR
-      || TYPE_HIGH_BOUND_KIND (range) == PROP_LOCLIST)
+  if (range->bounds ()->high.kind () == PROP_LOCEXPR
+      || range->bounds ()->high.kind () == PROP_LOCLIST)
     {
-      if (TYPE_VECTOR (type))
+      if (type->is_vector ())
 	{
 	  const char *s = _("variably-sized vector type is not supported");
 
@@ -483,7 +483,7 @@ compile_cplus_convert_array (compile_cplus_instance *instance,
 	}
 
       std::string upper_bound
-	= c_get_range_decl_name (&TYPE_RANGE_DATA (range)->high);
+	= c_get_range_decl_name (&range->bounds ()->high);
       return instance->plugin ().build_vla_array_type (element_type,
 					     upper_bound.c_str ());
     }
@@ -499,7 +499,7 @@ compile_cplus_convert_array (compile_cplus_instance *instance,
 	  count = high_bound + 1;
 	}
 
-      if (TYPE_VECTOR (type))
+      if (type->is_vector ())
 	return instance->plugin ().build_vector_type (element_type, count);
 
       return instance->plugin ().build_array_type (element_type, count);
@@ -515,13 +515,13 @@ compile_cplus_convert_typedef (compile_cplus_instance *instance,
 			       struct type *type,
 			       enum gcc_cp_symbol_kind nested_access)
 {
-  compile_scope scope = instance->new_scope (TYPE_NAME (type), type);
+  compile_scope scope = instance->new_scope (type->name (), type);
 
   if (scope.nested_type () != GCC_TYPE_NONE)
     return scope.nested_type ();
 
   gdb::unique_xmalloc_ptr<char> name
-    = compile_cplus_instance::decl_name (TYPE_NAME (type));
+    = compile_cplus_instance::decl_name (type->name ());
 
   /* Make sure the scope for this type has been pushed.  */
   instance->enter_scope (std::move (scope));
@@ -580,7 +580,7 @@ static void
 compile_cplus_convert_struct_or_union_members
   (compile_cplus_instance *instance, struct type *type, gcc_type comp_type)
 {
-  for (int i = TYPE_N_BASECLASSES (type); i < TYPE_NFIELDS (type); ++i)
+  for (int i = TYPE_N_BASECLASSES (type); i < type->num_fields (); ++i)
     {
       const char *field_name = TYPE_FIELD_NAME (type, i);
 
@@ -593,9 +593,9 @@ compile_cplus_convert_struct_or_union_members
 	field_name = nullptr;
 
       gcc_type field_type
-	= instance->convert_type (TYPE_FIELD_TYPE (type, i));
+	= instance->convert_type (type->field (i).type ());
 
-      if (field_is_static (&TYPE_FIELD (type, i)))
+      if (field_is_static (&type->field (i)))
 	{
 	  CORE_ADDR physaddr;
 
@@ -648,7 +648,7 @@ compile_cplus_convert_struct_or_union_members
 	    | get_field_access_flag (type, i);
 
 	  if (bitsize == 0)
-	    bitsize = 8 * TYPE_LENGTH (TYPE_FIELD_TYPE (type, i));
+	    bitsize = 8 * TYPE_LENGTH (type->field (i).type ());
 
 	  instance->plugin ().build_field
 	    (field_name, field_type, field_flags, bitsize,
@@ -668,7 +668,7 @@ compile_cplus_convert_method (compile_cplus_instance *instance,
      type and corresponding qualifier flags.  */
   gcc_type func_type = compile_cplus_convert_func (instance, method_type, true);
   gcc_type class_type = instance->convert_type (parent_type);
-  gcc_cp_qualifiers_flags quals = (enum gcc_cp_qualifiers) 0;
+  gcc_cp_qualifiers_flags quals = 0;
 
   if (TYPE_CONST (method_type))
     quals |= GCC_CP_QUALIFIER_CONST;
@@ -681,7 +681,7 @@ compile_cplus_convert_method (compile_cplus_instance *instance,
   gcc_cp_ref_qualifiers_flags rquals = GCC_CP_REF_QUAL_NONE;
 
   return instance->plugin ().build_method_type
-    (class_type, func_type, quals, rquals);
+    (class_type, func_type, quals.raw (), rquals.raw ());
 }
 
 /* Convert a member or method pointer represented by TYPE.  */
@@ -745,7 +745,7 @@ compile_cplus_convert_struct_or_union_methods (compile_cplus_instance *instance,
 		     (sym_kind
 		      | get_method_access_flag (type, i, j)
 		      | GCC_CP_FLAG_VIRTUAL_FUNCTION
-		      | GCC_CP_FLAG_PURE_VIRTUAL_FUNCTION),
+		      | GCC_CP_FLAG_PURE_VIRTUAL_FUNCTION).raw (),
 		     method_type, nullptr, 0, nullptr, 0);
 		  continue;
 		}
@@ -787,7 +787,7 @@ compile_cplus_convert_struct_or_union_methods (compile_cplus_instance *instance,
 
 	  instance->plugin ().build_decl
 	    (kind, overloaded_name.get (),
-	     sym_kind | get_method_access_flag (type, i, j),
+	     (sym_kind | get_method_access_flag (type, i, j)).raw (),
 	     method_type, nullptr, address, filename, line);
 	}
     }
@@ -807,10 +807,10 @@ compile_cplus_convert_struct_or_union (compile_cplus_instance *instance,
 
   /* Get the decl name of this type.  */
   gdb::unique_xmalloc_ptr<char> name
-    = compile_cplus_instance::decl_name (TYPE_NAME (type));
+    = compile_cplus_instance::decl_name (type->name ());
 
   /* Create a new scope for TYPE.  */
-  compile_scope scope = instance->new_scope (TYPE_NAME (type), type);
+  compile_scope scope = instance->new_scope (type->name (), type);
 
   if (scope.nested_type () != GCC_TYPE_NONE)
     {
@@ -826,7 +826,7 @@ compile_cplus_convert_struct_or_union (compile_cplus_instance *instance,
      table.  This lets recursive types work.  */
 
   gcc_decl resuld;
-  if (TYPE_CODE (type) == TYPE_CODE_STRUCT)
+  if (type->code () == TYPE_CODE_STRUCT)
     {
       const char *what = TYPE_DECLARED_CLASS (type) ? "struct" : "class";
 
@@ -839,46 +839,42 @@ compile_cplus_convert_struct_or_union (compile_cplus_instance *instance,
     }
   else
     {
-      gdb_assert (TYPE_CODE (type) == TYPE_CODE_UNION);
+      gdb_assert (type->code () == TYPE_CODE_UNION);
       resuld = instance->plugin ().build_decl
 	("union", name.get (), GCC_CP_SYMBOL_UNION | nested_access,
 	 0, nullptr, 0, filename, line);
     }
 
   gcc_type result;
-  if (TYPE_CODE (type) == TYPE_CODE_STRUCT)
+  if (type->code () == TYPE_CODE_STRUCT)
     {
-      struct gcc_vbase_array bases;
       int num_baseclasses = TYPE_N_BASECLASSES (type);
+      std::vector<gcc_type> elements (num_baseclasses);
+      std::vector<enum gcc_cp_symbol_kind> flags (num_baseclasses);
 
-      memset (&bases, 0, sizeof (bases));
+      struct gcc_vbase_array bases {};
+      bases.elements = elements.data ();
+      bases.flags = flags.data ();
+      bases.n_elements = num_baseclasses;
 
-      if (num_baseclasses > 0)
+      for (int i = 0; i < num_baseclasses; ++i)
 	{
-	  bases.elements = XNEWVEC (gcc_type, num_baseclasses);
-	  bases.flags = XNEWVEC (enum gcc_cp_symbol_kind, num_baseclasses);
-	  bases.n_elements = num_baseclasses;
-	  for (int i = 0; i < num_baseclasses; ++i)
-	    {
-	      struct type *base_type = TYPE_BASECLASS (type, i);
+	  struct type *base_type = TYPE_BASECLASS (type, i);
 
-	      bases.flags[i] = GCC_CP_SYMBOL_BASECLASS
-		| get_field_access_flag (type, i)
-		| (BASETYPE_VIA_VIRTUAL (type, i)
-		   ? GCC_CP_FLAG_BASECLASS_VIRTUAL
-		   : GCC_CP_FLAG_BASECLASS_NOFLAG);
-	      bases.elements[i] = instance->convert_type (base_type);
-	    }
+	  bases.flags[i] = (GCC_CP_SYMBOL_BASECLASS
+			    | get_field_access_flag (type, i)
+			    | (BASETYPE_VIA_VIRTUAL (type, i)
+			       ? GCC_CP_FLAG_BASECLASS_VIRTUAL
+			       : GCC_CP_FLAG_BASECLASS_NOFLAG));
+	  bases.elements[i] = instance->convert_type (base_type);
 	}
 
       result = instance->plugin ().start_class_type
 	(name.get (), resuld, &bases, filename, line);
-      xfree (bases.flags);
-      xfree (bases.elements);
     }
   else
     {
-      gdb_assert (TYPE_CODE (type) == TYPE_CODE_UNION);
+      gdb_assert (type->code () == TYPE_CODE_UNION);
       result = instance->plugin ().start_class_type
 	(name.get (), resuld, nullptr, filename, line);
     }
@@ -913,7 +909,7 @@ compile_cplus_convert_enum (compile_cplus_instance *instance, struct type *type,
   bool scoped_enum_p = false;
 
   /* Create a new scope for this type.  */
-  compile_scope scope = instance->new_scope (TYPE_NAME (type), type);
+  compile_scope scope = instance->new_scope (type->name (), type);
 
   if (scope.nested_type () != GCC_TYPE_NONE)
     {
@@ -923,13 +919,13 @@ compile_cplus_convert_enum (compile_cplus_instance *instance, struct type *type,
     }
 
   gdb::unique_xmalloc_ptr<char> name
-    = compile_cplus_instance::decl_name (TYPE_NAME (type));
+    = compile_cplus_instance::decl_name (type->name ());
 
   /* Push all scopes.  */
   instance->enter_scope (std::move (scope));
 
   gcc_type int_type
-    = instance->plugin ().get_int_type (TYPE_UNSIGNED (type),
+    = instance->plugin ().get_int_type (type->is_unsigned (),
 					TYPE_LENGTH (type), nullptr);
   gcc_type result
     = instance->plugin ().start_enum_type (name.get (), int_type,
@@ -938,7 +934,7 @@ compile_cplus_convert_enum (compile_cplus_instance *instance, struct type *type,
 					      ? GCC_CP_FLAG_ENUM_SCOPED
 					      : GCC_CP_FLAG_ENUM_NOFLAG),
 					   nullptr, 0);
-  for (int i = 0; i < TYPE_NFIELDS (type); ++i)
+  for (int i = 0; i < type->num_fields (); ++i)
     {
       gdb::unique_xmalloc_ptr<char> fname
 	= compile_cplus_instance::decl_name (TYPE_FIELD_NAME (type, i));
@@ -964,7 +960,7 @@ static gcc_type
 compile_cplus_convert_func (compile_cplus_instance *instance,
 			    struct type *type, bool strip_artificial)
 {
-  int is_varargs = TYPE_VARARGS (type);
+  int is_varargs = type->has_varargs ();
   struct type *target_type = TYPE_TARGET_TYPE (type);
 
   /* Functions with no debug info have no return type.  Ideally we'd
@@ -985,10 +981,10 @@ compile_cplus_convert_func (compile_cplus_instance *instance,
      types.  Those are impossible in C, though.  */
   gcc_type return_type = instance->convert_type (target_type);
 
-  struct gcc_type_array array =
-    { TYPE_NFIELDS (type), XNEWVEC (gcc_type, TYPE_NFIELDS (type)) };
+  std::vector<gcc_type> elements (type->num_fields ());
+  struct gcc_type_array array = { type->num_fields (), elements.data () };
   int artificials = 0;
-  for (int i = 0; i < TYPE_NFIELDS (type); ++i)
+  for (int i = 0; i < type->num_fields (); ++i)
     {
       if (strip_artificial && TYPE_FIELD_ARTIFICIAL (type, i))
 	{
@@ -998,7 +994,7 @@ compile_cplus_convert_func (compile_cplus_instance *instance,
       else
 	{
 	  array.elements[i - artificials]
-	    = instance->convert_type (TYPE_FIELD_TYPE (type, i));
+	    = instance->convert_type (type->field (i).type ());
 	}
     }
 
@@ -1006,7 +1002,6 @@ compile_cplus_convert_func (compile_cplus_instance *instance,
      with some minsyms like printf (compile-cplus.exp has examples).  */
   gcc_type result = instance->plugin ().build_function_type
     (return_type, &array, is_varargs);
-  xfree (array.elements);
   return result;
 }
 
@@ -1015,14 +1010,14 @@ compile_cplus_convert_func (compile_cplus_instance *instance,
 static gcc_type
 compile_cplus_convert_int (compile_cplus_instance *instance, struct type *type)
 {
-  if (TYPE_NOSIGN (type))
+  if (type->has_no_signedness ())
     {
       gdb_assert (TYPE_LENGTH (type) == 1);
       return instance->plugin ().get_char_type ();
     }
 
   return instance->plugin ().get_int_type
-    (TYPE_UNSIGNED (type), TYPE_LENGTH (type), TYPE_NAME (type));
+    (type->is_unsigned (), TYPE_LENGTH (type), type->name ());
 }
 
 /* Convert a floating-point type to its gcc representation.  */
@@ -1032,7 +1027,7 @@ compile_cplus_convert_float (compile_cplus_instance *instance,
 			     struct type *type)
 {
   return instance->plugin ().get_float_type
-    (TYPE_LENGTH (type), TYPE_NAME (type));
+    (TYPE_LENGTH (type), type->name ());
 }
 
 /* Convert the 'void' type to its gcc representation.  */
@@ -1060,7 +1055,7 @@ compile_cplus_instance::convert_qualified_base (gcc_type base,
   gcc_type result = base;
 
   if (quals != 0)
-    result = plugin ().build_qualified_type (base, quals);
+    result = plugin ().build_qualified_type (base, quals.raw ());
 
   return result;
 }
@@ -1102,9 +1097,9 @@ static gcc_type
 compile_cplus_convert_namespace (compile_cplus_instance *instance,
 				 struct type *type)
 {
-  compile_scope scope = instance->new_scope (TYPE_NAME (type), type);
+  compile_scope scope = instance->new_scope (type->name (), type);
   gdb::unique_xmalloc_ptr<char> name
-    = compile_cplus_instance::decl_name (TYPE_NAME (type));
+    = compile_cplus_instance::decl_name (type->name ());
 
   /* Push scope.  */
   instance->enter_scope (std::move (scope));
@@ -1135,12 +1130,12 @@ convert_type_cplus_basic (compile_cplus_instance *instance,
 {
   /* If we are converting a qualified type, first convert the
      unqualified type and then apply the qualifiers.  */
-  if ((TYPE_INSTANCE_FLAGS (type) & (TYPE_INSTANCE_FLAG_CONST
-				     | TYPE_INSTANCE_FLAG_VOLATILE
-				     | TYPE_INSTANCE_FLAG_RESTRICT)) != 0)
+  if ((type->instance_flags () & (TYPE_INSTANCE_FLAG_CONST
+				  | TYPE_INSTANCE_FLAG_VOLATILE
+				  | TYPE_INSTANCE_FLAG_RESTRICT)) != 0)
     return compile_cplus_convert_qualified (instance, type);
 
-  switch (TYPE_CODE (type))
+  switch (type->code ())
     {
     case TYPE_CODE_REF:
     case TYPE_CODE_RVALUE_REF:
@@ -1198,7 +1193,7 @@ convert_type_cplus_basic (compile_cplus_instance *instance,
     }
 
   std::string s = string_printf (_("unhandled TYPE_CODE %d"),
-				 TYPE_CODE (type));
+				 type->code ());
 
   return instance->plugin ().error (s.c_str ());
 }
@@ -1404,6 +1399,7 @@ gcc_cp_plugin::pop_binding_level (const char *debug_name)
   return pop_binding_level ();
 }
 
+void _initialize_compile_cplus_types ();
 void
 _initialize_compile_cplus_types ()
 {

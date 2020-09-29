@@ -1,6 +1,6 @@
 /* Target-dependent code for GNU/Linux UltraSPARC.
 
-   Copyright (C) 2003-2019 Free Software Foundation, Inc.
+   Copyright (C) 2003-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,7 +20,7 @@
 #include "defs.h"
 #include "frame.h"
 #include "frame-unwind.h"
-#include "dwarf2-frame.h"
+#include "dwarf2/frame.h"
 #include "regset.h"
 #include "regcache.h"
 #include "gdbarch.h"
@@ -116,15 +116,16 @@ sparc64_linux_sigframe_init (const struct tramp_frame *self,
   trad_frame_set_id (this_cache, frame_id_build (base, func));
 }
 
-/* sparc64 GNU/Linux implementation of the handle_segmentation_fault
+/* sparc64 GNU/Linux implementation of the report_signal_info
    gdbarch hook.
    Displays information related to ADI memory corruptions.  */
 
-void
-sparc64_linux_handle_segmentation_fault (struct gdbarch *gdbarch,
-				      struct ui_out *uiout)
+static void
+sparc64_linux_report_signal_info (struct gdbarch *gdbarch, struct ui_out *uiout,
+				  enum gdb_signal siggnal)
 {
-  if (gdbarch_bfd_arch_info (gdbarch)->bits_per_word != 64)
+  if (gdbarch_bfd_arch_info (gdbarch)->bits_per_word != 64
+      || siggnal != GDB_SIGNAL_SEGV)
     return;
 
   CORE_ADDR addr = 0;
@@ -150,19 +151,19 @@ sparc64_linux_handle_segmentation_fault (struct gdbarch *gdbarch,
       uiout->text ("\n");
       uiout->field_string ("sigcode-meaning", _("ADI disabled"));
       uiout->text (_(" while accessing address "));
-      uiout->field_fmt ("bound-access", "%s", paddress (gdbarch, addr));
+      uiout->field_core_addr ("bound-access", gdbarch, addr);
       break;
     case SEGV_ADIDERR:	/* disrupting mismatch */
       uiout->text ("\n");
       uiout->field_string ("sigcode-meaning", _("ADI deferred mismatch"));
       uiout->text (_(" while accessing address "));
-      uiout->field_fmt ("bound-access", "%s", paddress (gdbarch, addr));
+      uiout->field_core_addr ("bound-access", gdbarch, addr);
       break;
     case SEGV_ADIPERR:	/* precise mismatch */
       uiout->text ("\n");
       uiout->field_string ("sigcode-meaning", _("ADI precise mismatch"));
       uiout->text (_(" while accessing address "));
-      uiout->field_fmt ("bound-access", "%s", paddress (gdbarch, addr));
+      uiout->field_core_addr ("bound-access", gdbarch, addr);
       break;
     default:
       break;
@@ -404,12 +405,12 @@ sparc64_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_xml_syscall_file_name (gdbarch, XML_SYSCALL_FILENAME_SPARC64);
   set_gdbarch_get_syscall_number (gdbarch,
                                   sparc64_linux_get_syscall_number);
-  set_gdbarch_handle_segmentation_fault (gdbarch,
-					 sparc64_linux_handle_segmentation_fault);
+  set_gdbarch_report_signal_info (gdbarch, sparc64_linux_report_signal_info);
 }
 
+void _initialize_sparc64_linux_tdep ();
 void
-_initialize_sparc64_linux_tdep (void)
+_initialize_sparc64_linux_tdep ()
 {
   gdbarch_register_osabi (bfd_arch_sparc, bfd_mach_sparc_v9,
 			  GDB_OSABI_LINUX, sparc64_linux_init_abi);

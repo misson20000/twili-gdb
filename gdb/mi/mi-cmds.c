@@ -1,5 +1,5 @@
 /* MI Command Set for GDB, the GNU debugger.
-   Copyright (C) 2000-2019 Free Software Foundation, Inc.
+   Copyright (C) 2000-2020 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions (a Red Hat company).
 
@@ -151,6 +151,14 @@ static struct mi_cmd mi_cmds[] =
   DEF_MI_CMD_MI_1 ("stack-select-frame", mi_cmd_stack_select_frame,
 		   &mi_suppress_notification.user_selected_context),
   DEF_MI_CMD_MI ("symbol-list-lines", mi_cmd_symbol_list_lines),
+  DEF_MI_CMD_MI ("symbol-info-functions", mi_cmd_symbol_info_functions),
+  DEF_MI_CMD_MI ("symbol-info-variables", mi_cmd_symbol_info_variables),
+  DEF_MI_CMD_MI ("symbol-info-types", mi_cmd_symbol_info_types),
+  DEF_MI_CMD_MI ("symbol-info-modules", mi_cmd_symbol_info_modules),
+  DEF_MI_CMD_MI ("symbol-info-module-functions",
+		 mi_cmd_symbol_info_module_functions),
+  DEF_MI_CMD_MI ("symbol-info-module-variables",
+		 mi_cmd_symbol_info_module_variables),
   DEF_MI_CMD_CLI ("target-attach", "attach", 1),
   DEF_MI_CMD_MI ("target-detach", mi_cmd_target_detach),
   DEF_MI_CMD_CLI ("target-disconnect", "disconnect", 0),
@@ -287,8 +295,9 @@ build_table (struct mi_cmd *commands)
     }
 }
 
+void _initialize_mi_cmds ();
 void
-_initialize_mi_cmds (void)
+_initialize_mi_cmds ()
 {
   build_table (mi_cmds);
   memset (&stats, 0, sizeof (stats));

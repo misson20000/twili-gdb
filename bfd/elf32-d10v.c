@@ -1,5 +1,5 @@
 /* D10V-specific support for 32-bit ELF
-   Copyright (C) 1996-2019 Free Software Foundation, Inc.
+   Copyright (C) 1996-2020 Free Software Foundation, Inc.
    Contributed by Martin Hunt (hunt@cygnus.com).
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -482,7 +482,7 @@ elf32_d10v_relocate_section (bfd *output_bfd,
 	  name = (bfd_elf_string_from_elf_section
 		  (input_bfd, symtab_hdr->sh_link, sym->st_name));
 	  if (name == NULL || *name == '\0')
-	    name = bfd_section_name (input_bfd, sec);
+	    name = bfd_section_name (sec);
 	}
 
       r = _bfd_final_link_relocate (howto, input_bfd, input_section,
@@ -543,7 +543,6 @@ elf32_d10v_relocate_section (bfd *output_bfd,
 #define elf_info_to_howto		     NULL
 #define elf_info_to_howto_rel		     d10v_info_to_howto_rel
 #define elf_backend_object_p		     0
-#define elf_backend_final_write_processing   0
 #define elf_backend_gc_mark_hook	     elf32_d10v_gc_mark_hook
 #define elf_backend_check_relocs	     elf32_d10v_check_relocs
 #define elf_backend_relocate_section	     elf32_d10v_relocate_section

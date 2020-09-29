@@ -1,6 +1,6 @@
 /* Native-dependent code for GNU/Linux x86 (i386 and x86-64).
 
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -35,7 +35,7 @@
 #ifdef __x86_64__
 #include "amd64-linux-tdep.h"
 #endif
-#include "common/x86-xstate.h"
+#include "gdbsupport/x86-xstate.h"
 #include "nat/linux-btrace.h"
 #include "nat/linux-nat.h"
 #include "nat/x86-linux.h"
@@ -310,6 +310,7 @@ x86_linux_get_thread_area (pid_t pid, void *addr, unsigned int *base_addr)
 }
 
 
+void _initialize_x86_linux_nat ();
 void
 _initialize_x86_linux_nat ()
 {

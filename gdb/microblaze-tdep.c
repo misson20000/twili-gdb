@@ -1,6 +1,6 @@
 /* Target-dependent code for Xilinx MicroBlaze.
 
-   Copyright (C) 2009-2019 Free Software Foundation, Inc.
+   Copyright (C) 2009-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -31,11 +31,11 @@
 #include "target.h"
 #include "frame-base.h"
 #include "frame-unwind.h"
-#include "dwarf2-frame.h"
+#include "dwarf2/frame.h"
 #include "osabi.h"
 #include "target-descriptions.h"
-#include "../opcodes/microblaze-opcm.h"
-#include "../opcodes/microblaze-dis.h"
+#include "opcodes/microblaze-opcm.h"
+#include "opcodes/microblaze-dis.h"
 #include "microblaze-tdep.h"
 #include "remote.h"
 
@@ -65,7 +65,7 @@
 
 /* The registers of the Xilinx microblaze processor.  */
 
-static const char *microblaze_register_names[] =
+static const char * const microblaze_register_names[] =
 {
   "r0",   "r1",  "r2",    "r3",   "r4",   "r5",   "r6",   "r7",
   "r8",   "r9",  "r10",   "r11",  "r12",  "r13",  "r14",  "r15",
@@ -651,7 +651,7 @@ microblaze_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 {
   struct gdbarch_tdep *tdep;
   struct gdbarch *gdbarch;
-  struct tdesc_arch_data *tdesc_data = NULL;
+  tdesc_arch_data_up tdesc_data;
   const struct target_desc *tdesc = info.target_desc;
 
   /* If there is already a candidate, use it.  */
@@ -676,26 +676,23 @@ microblaze_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
       valid_p = 1;
       for (i = 0; i < MICROBLAZE_NUM_CORE_REGS; i++)
-        valid_p &= tdesc_numbered_register (feature, tdesc_data, i,
+        valid_p &= tdesc_numbered_register (feature, tdesc_data.get (), i,
                                             microblaze_register_names[i]);
       feature = tdesc_find_feature (tdesc,
                                     "org.gnu.gdb.microblaze.stack-protect");
       if (feature != NULL)
         {
           valid_p = 1;
-          valid_p &= tdesc_numbered_register (feature, tdesc_data,
+          valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
                                               MICROBLAZE_SLR_REGNUM,
                                               "rslr");
-          valid_p &= tdesc_numbered_register (feature, tdesc_data,
+          valid_p &= tdesc_numbered_register (feature, tdesc_data.get (),
                                               MICROBLAZE_SHR_REGNUM,
                                               "rshr");
         }
 
       if (!valid_p)
-        {
-          tdesc_data_cleanup (tdesc_data);
-          return NULL;
-        }
+	return NULL;
     }
 
   /* Allocate space for the new architecture.  */
@@ -748,13 +745,14 @@ microblaze_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   frame_unwind_append_unwinder (gdbarch, &microblaze_frame_unwind);
   frame_base_append_sniffer (gdbarch, dwarf2_frame_base_sniffer);
   if (tdesc_data != NULL)
-    tdesc_use_registers (gdbarch, tdesc, tdesc_data);
+    tdesc_use_registers (gdbarch, tdesc, std::move (tdesc_data));
 
   return gdbarch;
 }
 
+void _initialize_microblaze_tdep ();
 void
-_initialize_microblaze_tdep (void)
+_initialize_microblaze_tdep ()
 {
   register_gdbarch_init (bfd_arch_microblaze, microblaze_gdbarch_init);
 

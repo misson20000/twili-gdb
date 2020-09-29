@@ -1,6 +1,6 @@
 /* Declarations for value printing routines for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -30,23 +30,23 @@ struct value_print_options
   enum val_prettyformat prettyformat;
 
   /* Controls pretty formatting of arrays.  */
-  int prettyformat_arrays;
+  bool prettyformat_arrays;
 
   /* Controls pretty formatting of structures.  */
-  int prettyformat_structs;
+  bool prettyformat_structs;
 
   /* Controls printing of virtual tables.  */
-  int vtblprint;
+  bool vtblprint;
 
   /* Controls printing of nested unions.  */
-  int unionprint;
+  bool unionprint;
 
   /* Controls printing of addresses.  */
-  int addressprint;
+  bool addressprint;
 
   /* Controls looking up an object's derived type using what we find
      in its vtables.  */
-  int objectprint;
+  bool objectprint;
 
   /* Maximum number of chars to print for a string pointer value or vector
      contents, or UINT_MAX for no limit.  Note that "set print elements 0"
@@ -66,40 +66,40 @@ struct value_print_options
   int format;
 
   /* Stop printing at null character?  */
-  int stop_print_at_null;
+  bool stop_print_at_null;
 
   /* True if we should print the index of each element when printing
      an array.  */
-  int print_array_indexes;
+  bool print_array_indexes;
 
-  /* If nonzero, then dereference references, otherwise just print
+  /* If true, then dereference references, otherwise just print
      them like pointers.  */
-  int deref_ref;
+  bool deref_ref;
 
-  /* If nonzero, print static fields.  */
-  int static_field_print;
+  /* If true, print static fields.  */
+  bool static_field_print;
 
-  /* If nonzero, print static fields for Pascal.  FIXME: C++ has a
+  /* If true, print static fields for Pascal.  FIXME: C++ has a
      flag, why not share with Pascal too?  */
-  int pascal_static_field_print;
+  bool pascal_static_field_print;
 
-  /* If non-zero don't do Python pretty-printing.  */
-  int raw;
+  /* If true, don't do Python pretty-printing.  */
+  bool raw;
 
-  /* If nonzero, print the value in "summary" form.
-     If raw and summary are both non-zero, don't print non-scalar values
+  /* If true, print the value in "summary" form.
+     If raw and summary are both true, don't print non-scalar values
      ("..." is printed instead).  */
-  int summary;
+  bool summary;
 
-  /* If nonzero, when printing a pointer, print the symbol to which it
+  /* If true, when printing a pointer, print the symbol to which it
      points, if any.  */
-  int symbol_print;
+  bool symbol_print;
 
   /* Maximum print depth when printing nested aggregates.  */
   int max_depth;
 
   /* Whether "finish" should print the value.  */
-  int finish_print;
+  bool finish_print;
 };
 
 /* Create an option_def_group for the value_print options, with OPTS
@@ -128,18 +128,22 @@ extern void maybe_print_array_index (struct type *index_type, LONGEST index,
                                      struct ui_file *stream,
 				     const struct value_print_options *);
 
-extern void val_print_array_elements (struct type *, LONGEST,
-				      CORE_ADDR, struct ui_file *, int,
-				      struct value *,
-				      const struct value_print_options *,
-				      unsigned int);
 
-extern void val_print_scalar_formatted (struct type *,
-					LONGEST,
-					struct value *,
+/* Print elements of an array.  */
+
+extern void value_print_array_elements (struct value *, struct ui_file *, int,
 					const struct value_print_options *,
-					int,
-					struct ui_file *);
+					unsigned int);
+
+/* Print a scalar according to OPTIONS and SIZE on STREAM.  Format 'i'
+   is not supported at this level.
+
+   This is how the elements of an array or structure are printed
+   with a format.  */
+
+extern void value_print_scalar_formatted
+  (struct value *val, const struct value_print_options *options,
+   int size, struct ui_file *stream);
 
 extern void print_binary_chars (struct ui_file *, const gdb_byte *,
 				unsigned int, enum bfd_endian, bool);
@@ -166,6 +170,20 @@ extern int read_string (CORE_ADDR addr, int len, int width,
 			enum bfd_endian byte_order,
 			gdb::unique_xmalloc_ptr<gdb_byte> *buffer,
 			int *bytes_read);
+
+/* Helper function to check the validity of some bits of a value.
+
+   If TYPE represents some aggregate type (e.g., a structure), return 1.
+
+   Otherwise, any of the bytes starting at OFFSET and extending for
+   TYPE_LENGTH(TYPE) bytes are invalid, print a message to STREAM and
+   return 0.  The checking is done using FUNCS.
+
+   Otherwise, return 1.  */
+
+extern int valprint_check_validity (struct ui_file *stream, struct type *type,
+				    LONGEST embedded_offset,
+				    const struct value *val);
 
 extern void val_print_optimized_out (const struct value *val,
 				     struct ui_file *stream);
@@ -204,12 +222,16 @@ struct generic_val_print_decorations
 };
 
 
-extern void generic_val_print (struct type *type,
-			       int embedded_offset, CORE_ADDR address,
-			       struct ui_file *stream, int recurse,
-			       struct value *original_value,
-			       const struct value_print_options *options,
-			       const struct generic_val_print_decorations *);
+/* Print a value in a generic way.  VAL is the value, STREAM is where
+   to print it, RECURSE is the recursion depth, OPTIONS describe how
+   the printing should be done, and D is the language-specific
+   decorations object.  Note that structs and unions cannot be printed
+   by this function.  */
+
+extern void generic_value_print (struct value *val, struct ui_file *stream,
+				 int recurse,
+				 const struct value_print_options *options,
+				 const struct generic_val_print_decorations *d);
 
 extern void generic_emit_char (int c, struct type *type, struct ui_file *stream,
 			       int quoter, const char *encoding);
@@ -255,13 +277,18 @@ extern void print_command_completer (struct cmd_list_element *ignore,
 /* Given an address ADDR return all the elements needed to print the
    address in a symbolic form.  NAME can be mangled or not depending
    on DO_DEMANGLE (and also on the asm_demangle global variable,
-   manipulated via ''set print asm-demangle'').  Return 0 in case of
-   success, when all the info in the OUT paramters is valid.  Return 1
-   otherwise.  */
+   manipulated via ''set print asm-demangle'').  When
+   PREFER_SYM_OVER_MINSYM is true, names (and offsets) from minimal
+   symbols won't be used except in instances where no symbol was
+   found; otherwise, a minsym might be used in some instances (mostly
+   involving function with non-contiguous address ranges).  Return
+   0 in case of success, when all the info in the OUT parameters is
+   valid.  Return 1 otherwise.  */
 
 extern int build_address_symbolic (struct gdbarch *,
 				   CORE_ADDR addr,
-				   int do_demangle,
+				   bool do_demangle,
+				   bool prefer_sym_over_minsym,
 				   std::string *name,
 				   int *offset,
 				   std::string *filename,
@@ -276,5 +303,13 @@ extern int build_address_symbolic (struct gdbarch *,
 extern bool val_print_check_max_depth (struct ui_file *stream, int recurse,
 				       const struct value_print_options *opts,
 				       const struct language_defn *language);
+
+/* Like common_val_print, but call value_check_printable first.  */
+
+extern void common_val_print_checked
+  (struct value *val,
+   struct ui_file *stream, int recurse,
+   const struct value_print_options *options,
+   const struct language_defn *language);
 
 #endif

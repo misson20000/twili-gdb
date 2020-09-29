@@ -1,6 +1,6 @@
 /* Standard language operator definitions for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -167,14 +167,6 @@ OP (OP_FUNCALL)
    many plus one values are used, the first one being the object
    pointer.  This is an Objective C message.  */
 OP (OP_OBJC_MSGCALL)
-
-/* This is EXACTLY like OP_FUNCALL but is semantically different.
-   In F77, array subscript expressions, substring expressions and
-   function calls are all exactly the same syntactically.  They
-   may only be disambiguated at runtime.  Thus this operator,
-   which indicates that we have found something of the form
-   <name> ( <stuff> ).  */
-OP (OP_F77_UNDETERMINED_ARGLIST)
 
 /* OP_COMPLEX takes a type in the following element, followed by another
    OP_COMPLEX, making three exp_elements.  It is followed by two double

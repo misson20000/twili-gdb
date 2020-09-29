@@ -1,6 +1,6 @@
 /* Target-dependent code for the CSKY architecture, for GDB.
 
-   Copyright (C) 2010-2019 Free Software Foundation, Inc.
+   Copyright (C) 2010-2020 Free Software Foundation, Inc.
 
    Contributed by C-SKY Microsystems and Mentor Graphics.
 
@@ -20,7 +20,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #include "defs.h"
-#include "common/gdb_assert.h"
+#include "gdbsupport/gdb_assert.h"
 #include "frame.h"
 #include "inferior.h"
 #include "symtab.h"
@@ -49,7 +49,7 @@
 #include "floatformat.h"
 #include "remote.h"
 #include "target-descriptions.h"
-#include "dwarf2-frame.h"
+#include "dwarf2/frame.h"
 #include "user-regs.h"
 #include "valprint.h"
 #include "csky-tdep.h"
@@ -59,7 +59,7 @@
 #include <vector>
 
 /* Control debugging information emitted in this file.  */
-static int csky_debug = 0;
+static bool csky_debug = false;
 
 static struct reggroup *cr_reggroup;
 static struct reggroup *fr_reggroup;
@@ -162,7 +162,7 @@ csky_write_pc (regcache *regcache, CORE_ADDR val)
 
 /* C-Sky ABI register names.  */
 
-static const char *csky_register_names[] =
+static const char * const csky_register_names[] =
 {
   /* General registers 0 - 31.  */
   "r0",  "r1",  "r2",  "r3",  "r4",  "r5",  "r6",  "r7",
@@ -266,8 +266,8 @@ csky_vector_type (struct gdbarch *gdbarch)
   append_composite_type_field (t, "u8",
 			       init_vector_type (bt->builtin_int8, 16));
 
-  TYPE_VECTOR (t) = 1;
-  TYPE_NAME (t) = "builtin_type_vec128i";
+  t->set_is_vector (true);
+  t->set_name ("builtin_type_vec128i");
 
   return t;
 }
@@ -2240,8 +2240,9 @@ csky_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
+void _initialize_csky_tdep ();
 void
-_initialize_csky_tdep (void)
+_initialize_csky_tdep ()
 {
 
   register_gdbarch_init (bfd_arch_csky, csky_gdbarch_init);

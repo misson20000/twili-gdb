@@ -1,6 +1,6 @@
 
 /* YACC parser for Fortran expressions, for GDB.
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    Contributed by Motorola.  Adapted from the C parser by Farooq Butt
    (fmbutt@engage.sps.mot.com).
@@ -167,8 +167,10 @@ static int parse_number (struct parser_state *, const char *, int,
 %token INT_KEYWORD INT_S2_KEYWORD LOGICAL_S1_KEYWORD LOGICAL_S2_KEYWORD 
 %token LOGICAL_S8_KEYWORD
 %token LOGICAL_KEYWORD REAL_KEYWORD REAL_S8_KEYWORD REAL_S16_KEYWORD 
+%token COMPLEX_KEYWORD
 %token COMPLEX_S8_KEYWORD COMPLEX_S16_KEYWORD COMPLEX_S32_KEYWORD 
 %token BOOL_AND BOOL_OR BOOL_NOT   
+%token SINGLE DOUBLE PRECISION
 %token <lval> CHARACTER 
 
 %token <voidval> DOLLAR_VARIABLE
@@ -617,12 +619,22 @@ typebase  /* Implements (approximately): (type-qualifier)* type-specifier */
 			{ $$ = parse_f_type (pstate)->builtin_real_s8; }
 	|	REAL_S16_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_real_s16; }
+	|	COMPLEX_KEYWORD
+			{ $$ = parse_f_type (pstate)->builtin_complex_s8; }
 	|	COMPLEX_S8_KEYWORD
 			{ $$ = parse_f_type (pstate)->builtin_complex_s8; }
 	|	COMPLEX_S16_KEYWORD 
 			{ $$ = parse_f_type (pstate)->builtin_complex_s16; }
 	|	COMPLEX_S32_KEYWORD 
 			{ $$ = parse_f_type (pstate)->builtin_complex_s32; }
+	|	SINGLE PRECISION
+			{ $$ = parse_f_type (pstate)->builtin_real;}
+	|	DOUBLE PRECISION
+			{ $$ = parse_f_type (pstate)->builtin_real_s8;}
+	|	SINGLE COMPLEX_KEYWORD
+			{ $$ = parse_f_type (pstate)->builtin_complex_s8;}
+	|	DOUBLE COMPLEX_KEYWORD
+			{ $$ = parse_f_type (pstate)->builtin_complex_s16;}
 	;
 
 nonempty_typelist
@@ -815,7 +827,7 @@ push_kind_type (LONGEST val, struct type *type)
 {
   int ival;
 
-  if (TYPE_UNSIGNED (type))
+  if (type->is_unsigned ())
     {
       ULONGEST uval = static_cast <ULONGEST> (val);
       if (uval > INT_MAX)
@@ -956,10 +968,13 @@ static const struct token f77_keywords[] =
   { "integer", INT_KEYWORD, BINOP_END, true },
   { "logical", LOGICAL_KEYWORD, BINOP_END, true },
   { "real_16", REAL_S16_KEYWORD, BINOP_END, true },
-  { "complex", COMPLEX_S8_KEYWORD, BINOP_END, true },
+  { "complex", COMPLEX_KEYWORD, BINOP_END, true },
   { "sizeof", SIZEOF, BINOP_END, true },
   { "real_8", REAL_S8_KEYWORD, BINOP_END, true },
   { "real", REAL_KEYWORD, BINOP_END, true },
+  { "single", SINGLE, BINOP_END, true },
+  { "double", DOUBLE, BINOP_END, true },
+  { "precision", PRECISION, BINOP_END, true },
   /* The following correspond to actual functions in Fortran and are case
      insensitive.  */
   { "kind", KIND, BINOP_END, false },
@@ -1275,7 +1290,6 @@ yylex (void)
   {
     std::string tmp = copy_name (yylval.sval);
     struct block_symbol result;
-    struct field_of_this_result is_a_field_of_this;
     enum domain_enum_tag lookup_domains[] =
     {
       STRUCT_DOMAIN,
@@ -1286,15 +1300,8 @@ yylex (void)
 
     for (int i = 0; i < ARRAY_SIZE (lookup_domains); ++i)
       {
-	/* Initialize this in case we *don't* use it in this call; that
-	   way we can refer to it unconditionally below.  */
-	memset (&is_a_field_of_this, 0, sizeof (is_a_field_of_this));
-
 	result = lookup_symbol (tmp.c_str (), pstate->expression_context_block,
-				lookup_domains[i],
-				pstate->language ()->la_language
-				== language_cplus
-				  ? &is_a_field_of_this : NULL);
+				lookup_domains[i], NULL);
 	if (result.symbol && SYMBOL_CLASS (result.symbol) == LOC_TYPEDEF)
 	  {
 	    yylval.tsym.type = SYMBOL_TYPE (result.symbol);
@@ -1323,14 +1330,14 @@ yylex (void)
 	if (hextype == INT)
 	  {
 	    yylval.ssym.sym = result;
-	    yylval.ssym.is_a_field_of_this = is_a_field_of_this.type != NULL;
+	    yylval.ssym.is_a_field_of_this = false;
 	    return NAME_OR_INT;
 	  }
       }
     
     /* Any other kind of symbol */
     yylval.ssym.sym = result;
-    yylval.ssym.is_a_field_of_this = is_a_field_of_this.type != NULL;
+    yylval.ssym.is_a_field_of_this = false;
     return NAME;
   }
 }

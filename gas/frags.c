@@ -1,5 +1,5 @@
 /* frags.c - manage frags -
-   Copyright (C) 1987-2019 Free Software Foundation, Inc.
+   Copyright (C) 1987-2020 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -89,9 +89,9 @@ frag_alloc (struct obstack *ob)
 }
 
 /* Try to augment current frag by nchars chars.
-   If there is no room, close of the current frag with a ".fill 0"
-   and begin a new frag. Unless the new frag has nchars chars available
-   do not return. Do not set up any fields of *now_frag.  */
+   If there is no room, close off the current frag with a ".fill 0"
+   and begin a new frag.  Then loop until the new frag has at least
+   nchars chars available.  Does not set up any fields in frag_now.  */
 
 void
 frag_grow (size_t nchars)
@@ -395,7 +395,12 @@ frag_now_fix_octets (void)
 addressT
 frag_now_fix (void)
 {
-  return frag_now_fix_octets () / OCTETS_PER_BYTE;
+  /* Symbols whose section has SEC_ELF_OCTETS set,
+     resolve to octets instead of target bytes.  */
+  if (now_seg->flags & SEC_OCTETS)
+    return frag_now_fix_octets ();
+  else
+    return frag_now_fix_octets () / OCTETS_PER_BYTE;
 }
 
 void

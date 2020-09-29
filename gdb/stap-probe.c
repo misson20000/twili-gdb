@@ -1,6 +1,6 @@
 /* SystemTap probe support for GDB.
 
-   Copyright (C) 2012-2019 Free Software Foundation, Inc.
+   Copyright (C) 2012-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,7 +20,6 @@
 #include "defs.h"
 #include "stap-probe.h"
 #include "probe.h"
-#include "common/vec.h"
 #include "ui-out.h"
 #include "objfiles.h"
 #include "arch-utils.h"
@@ -102,6 +101,12 @@ struct stap_probe_arg
 class stap_static_probe_ops : public static_probe_ops
 {
 public:
+  /* We need a user-provided constructor to placate some compilers.
+     See PR build/24937.  */
+  stap_static_probe_ops ()
+  {
+  }
+
   /* See probe.h.  */
   bool is_linespec (const char **linespecp) const override;
 
@@ -136,7 +141,7 @@ public:
   CORE_ADDR get_relocated_address (struct objfile *objfile) override;
 
   /* See probe.h.  */
-  unsigned get_argument_count (struct frame_info *frame) override;
+  unsigned get_argument_count (struct gdbarch *gdbarch) override;
 
   /* See probe.h.  */
   bool can_evaluate_arguments () const override;
@@ -762,12 +767,38 @@ stap_parse_register_operand (struct stap_parse_info *p)
 	regname += gdb_reg_suffix;
     }
 
+  int regnum = user_reg_map_name_to_regnum (gdbarch, regname.c_str (),
+					    regname.size ());
+
   /* Is this a valid register name?  */
-  if (user_reg_map_name_to_regnum (gdbarch,
-				   regname.c_str (),
-				   regname.size ()) == -1)
+  if (regnum == -1)
     error (_("Invalid register name `%s' on expression `%s'."),
 	   regname.c_str (), p->saved_arg);
+
+  /* Check if there's any special treatment that the arch-specific
+     code would like to perform on the register name.  */
+  if (gdbarch_stap_adjust_register_p (gdbarch))
+    {
+      std::string newregname
+	= gdbarch_stap_adjust_register (gdbarch, p, regname, regnum);
+
+      if (regname != newregname)
+	{
+	  /* This is just a check we perform to make sure that the
+	     arch-dependent code has provided us with a valid
+	     register name.  */
+	  regnum = user_reg_map_name_to_regnum (gdbarch, newregname.c_str (),
+						newregname.size ());
+
+	  if (regnum == -1)
+	    internal_error (__FILE__, __LINE__,
+			    _("Invalid register name '%s' after replacing it"
+			      " (previous name was '%s')"),
+			    newregname.c_str (), regname.c_str ());
+
+	  regname = newregname;
+	}
+    }
 
   write_exp_elt_opcode (&p->pstate, OP_REGISTER);
   str.ptr = regname.c_str ();
@@ -1259,8 +1290,7 @@ stap_probe::parse_arguments (struct gdbarch *gdbarch)
 static CORE_ADDR
 relocate_address (CORE_ADDR address, struct objfile *objfile)
 {
-  return address + ANOFFSET (objfile->section_offsets,
-			     SECT_OFF_DATA (objfile));
+  return address + objfile->data_section_offset ();
 }
 
 /* Implementation of the get_relocated_address method.  */
@@ -1275,10 +1305,8 @@ stap_probe::get_relocated_address (struct objfile *objfile)
    argument string.  */
 
 unsigned
-stap_probe::get_argument_count (struct frame_info *frame)
+stap_probe::get_argument_count (struct gdbarch *gdbarch)
 {
-  struct gdbarch *gdbarch = get_frame_arch (frame);
-
   if (!m_have_parsed_args)
     {
       if (this->can_evaluate_arguments ())
@@ -1402,9 +1430,6 @@ stap_modify_semaphore (CORE_ADDR address, int set, struct gdbarch *gdbarch)
   struct type *type = builtin_type (gdbarch)->builtin_unsigned_short;
   ULONGEST value;
 
-  if (address == 0)
-    return;
-
   /* Swallow errors.  */
   if (target_read_memory (address, bytes, TYPE_LENGTH (type)) != 0)
     {
@@ -1412,8 +1437,8 @@ stap_modify_semaphore (CORE_ADDR address, int set, struct gdbarch *gdbarch)
       return;
     }
 
-  value = extract_unsigned_integer (bytes, TYPE_LENGTH (type),
-				    gdbarch_byte_order (gdbarch));
+  enum bfd_endian byte_order = type_byte_order (type);
+  value = extract_unsigned_integer (bytes, TYPE_LENGTH (type), byte_order);
   /* Note that we explicitly don't worry about overflow or
      underflow.  */
   if (set)
@@ -1421,8 +1446,7 @@ stap_modify_semaphore (CORE_ADDR address, int set, struct gdbarch *gdbarch)
   else
     --value;
 
-  store_unsigned_integer (bytes, TYPE_LENGTH (type),
-			  gdbarch_byte_order (gdbarch), value);
+  store_unsigned_integer (bytes, TYPE_LENGTH (type), byte_order, value);
 
   if (target_write_memory (address, bytes, TYPE_LENGTH (type)) != 0)
     warning (_("Could not write the value of a SystemTap semaphore."));
@@ -1439,6 +1463,8 @@ stap_modify_semaphore (CORE_ADDR address, int set, struct gdbarch *gdbarch)
 void
 stap_probe::set_semaphore (struct objfile *objfile, struct gdbarch *gdbarch)
 {
+  if (m_sem_addr == 0)
+    return;
   stap_modify_semaphore (relocate_address (m_sem_addr, objfile), 1, gdbarch);
 }
 
@@ -1447,6 +1473,8 @@ stap_probe::set_semaphore (struct objfile *objfile, struct gdbarch *gdbarch)
 void
 stap_probe::clear_semaphore (struct objfile *objfile, struct gdbarch *gdbarch)
 {
+  if (m_sem_addr == 0)
+    return;
   stap_modify_semaphore (relocate_address (m_sem_addr, objfile), 0, gdbarch);
 }
 
@@ -1489,7 +1517,7 @@ handle_stap_probe (struct objfile *objfile, struct sdt_note *el,
 {
   bfd *abfd = objfile->obfd;
   int size = bfd_get_arch_size (abfd) / 8;
-  struct gdbarch *gdbarch = get_objfile_arch (objfile);
+  struct gdbarch *gdbarch = objfile->arch ();
   struct type *ptr_type = builtin_type (gdbarch)->builtin_data_ptr;
 
   /* Provider and the name of the probe.  */
@@ -1550,19 +1578,6 @@ handle_stap_probe (struct objfile *objfile, struct sdt_note *el,
   probesp->emplace_back (ret);
 }
 
-/* Helper function which tries to find the base address of the SystemTap
-   base section named STAP_BASE_SECTION_NAME.  */
-
-static void
-get_stap_base_address_1 (bfd *abfd, asection *sect, void *obj)
-{
-  asection **ret = (asection **) obj;
-
-  if ((sect->flags & (SEC_DATA | SEC_ALLOC | SEC_HAS_CONTENTS))
-      && sect->name && !strcmp (sect->name, STAP_BASE_SECTION_NAME))
-    *ret = sect;
-}
-
 /* Helper function which iterates over every section in the BFD file,
    trying to find the base address of the SystemTap base section.
    Returns 1 if found (setting BASE to the proper value), zero otherwise.  */
@@ -1572,13 +1587,16 @@ get_stap_base_address (bfd *obfd, bfd_vma *base)
 {
   asection *ret = NULL;
 
-  bfd_map_over_sections (obfd, get_stap_base_address_1, (void *) &ret);
+  for (asection *sect : gdb_bfd_sections (obfd))
+    if ((sect->flags & (SEC_DATA | SEC_ALLOC | SEC_HAS_CONTENTS))
+	&& sect->name && !strcmp (sect->name, STAP_BASE_SECTION_NAME))
+      ret = sect;
 
   if (ret == NULL)
     {
       complaint (_("could not obtain base address for "
 					"SystemTap section on objfile `%s'."),
-		 obfd->filename);
+		 bfd_get_filename (obfd));
       return 0;
     }
 
@@ -1681,8 +1699,9 @@ info_probes_stap_command (const char *arg, int from_tty)
   info_probes_for_spops (arg, from_tty, &stap_static_probe_ops);
 }
 
+void _initialize_stap_probe ();
 void
-_initialize_stap_probe (void)
+_initialize_stap_probe ()
 {
   all_static_probe_ops.push_back (&stap_static_probe_ops);
 

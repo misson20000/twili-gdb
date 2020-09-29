@@ -1,5 +1,5 @@
 /* Target-dependent code for FreeBSD on RISC-V processors.
-   Copyright (C) 2018-2019 Free Software Foundation, Inc.
+   Copyright (C) 2018-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -25,6 +25,8 @@
 #include "target.h"
 #include "trad-frame.h"
 #include "tramp-frame.h"
+#include "gdbarch.h"
+#include "inferior.h"
 
 /* Register maps.  */
 
@@ -79,7 +81,7 @@ const struct regset riscv_fbsd_fpregset =
     regcache_supply_regset, regcache_collect_regset
   };
 
-/* Implement the "regset_from_core_section" gdbarch method.  */
+/* Implement the "iterate_over_regset_sections" gdbarch method.  */
 
 static void
 riscv_fbsd_iterate_over_regset_sections (struct gdbarch *gdbarch,
@@ -182,7 +184,8 @@ riscv_fbsd_get_thread_local_address (struct gdbarch *gdbarch, ptid_t ptid,
 {
   struct regcache *regcache;
 
-  regcache = get_thread_arch_regcache (ptid, gdbarch);
+  regcache = get_thread_arch_regcache (current_inferior ()->process_target (),
+				       ptid, gdbarch);
 
   target_fetch_registers (regcache, RISCV_TP_REGNUM);
 
@@ -222,8 +225,9 @@ riscv_fbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 					riscv_fbsd_get_thread_local_address);
 }
 
+void _initialize_riscv_fbsd_tdep ();
 void
-_initialize_riscv_fbsd_tdep (void)
+_initialize_riscv_fbsd_tdep ()
 {
   gdbarch_register_osabi (bfd_arch_riscv, 0, GDB_OSABI_FREEBSD,
 			  riscv_fbsd_init_abi);

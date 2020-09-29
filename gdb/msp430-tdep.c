@@ -1,7 +1,7 @@
 /* Target-dependent code for the Texas Instruments MSP430 for GDB, the
    GNU debugger.
 
-   Copyright (C) 2012-2019 Free Software Foundation, Inc.
+   Copyright (C) 2012-2020 Free Software Foundation, Inc.
 
    Contributed by Red Hat, Inc.
 
@@ -32,7 +32,7 @@
 #include "frame-base.h"
 #include "value.h"
 #include "gdbcore.h"
-#include "dwarf2-frame.h"
+#include "dwarf2/frame.h"
 #include "reggroups.h"
 
 #include "elf/msp430.h"
@@ -570,8 +570,8 @@ msp430_return_value (struct gdbarch *gdbarch,
   int code_model = gdbarch_tdep (gdbarch)->code_model;
 
   if (TYPE_LENGTH (valtype) > 8
-      || TYPE_CODE (valtype) == TYPE_CODE_STRUCT
-      || TYPE_CODE (valtype) == TYPE_CODE_UNION)
+      || valtype->code () == TYPE_CODE_STRUCT
+      || valtype->code () == TYPE_CODE_UNION)
     return RETURN_VALUE_STRUCT_CONVENTION;
 
   if (readbuf)
@@ -585,7 +585,7 @@ msp430_return_value (struct gdbarch *gdbarch,
 	  int size = 2;
 
 	  if (code_model == MSP_LARGE_CODE_MODEL
-	      && TYPE_CODE (valtype) == TYPE_CODE_PTR)
+	      && valtype->code () == TYPE_CODE_PTR)
 	    {
 	      size = 4;
 	    }
@@ -609,7 +609,7 @@ msp430_return_value (struct gdbarch *gdbarch,
 	  int size = 2;
 
 	  if (code_model == MSP_LARGE_CODE_MODEL
-	      && TYPE_CODE (valtype) == TYPE_CODE_PTR)
+	      && valtype->code () == TYPE_CODE_PTR)
 	    {
 	      size = 4;
 	    }
@@ -652,12 +652,12 @@ msp430_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
   struct type *func_type = value_type (function);
 
   /* Dereference function pointer types.  */
-  while (TYPE_CODE (func_type) == TYPE_CODE_PTR)
+  while (func_type->code () == TYPE_CODE_PTR)
     func_type = TYPE_TARGET_TYPE (func_type);
 
   /* The end result had better be a function or a method.  */
-  gdb_assert (TYPE_CODE (func_type) == TYPE_CODE_FUNC
-	      || TYPE_CODE (func_type) == TYPE_CODE_METHOD);
+  gdb_assert (func_type->code () == TYPE_CODE_FUNC
+	      || func_type->code () == TYPE_CODE_METHOD);
 
   /* We make two passes; the first does the stack allocation,
      the second actually stores the arguments.  */
@@ -691,8 +691,8 @@ msp430_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 
 	  current_arg_on_stack = 0;
 
-	  if (TYPE_CODE (arg_type) == TYPE_CODE_STRUCT
-	      || TYPE_CODE (arg_type) == TYPE_CODE_UNION)
+	  if (arg_type->code () == TYPE_CODE_STRUCT
+	      || arg_type->code () == TYPE_CODE_UNION)
 	    {
 	      /* Aggregates of any size are passed by reference.  */
 	      store_unsigned_integer (struct_addr_buf, 4, byte_order,
@@ -723,10 +723,10 @@ msp430_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 		  int size = 2;
 
 		  if (code_model == MSP_LARGE_CODE_MODEL
-		      && (TYPE_CODE (arg_type) == TYPE_CODE_PTR
+		      && (arg_type->code () == TYPE_CODE_PTR
 		          || TYPE_IS_REFERENCE (arg_type)
-			  || TYPE_CODE (arg_type) == TYPE_CODE_STRUCT
-			  || TYPE_CODE (arg_type) == TYPE_CODE_UNION))
+			  || arg_type->code () == TYPE_CODE_STRUCT
+			  || arg_type->code () == TYPE_CODE_UNION))
 		    {
 		      /* When using the large memory model, pointer,
 			 reference, struct, and union arguments are
@@ -808,7 +808,7 @@ msp430_skip_trampoline_code (struct frame_info *frame, CORE_ADDR pc)
   if (!bms.minsym)
     return pc;
 
-  stub_name = MSYMBOL_LINKAGE_NAME (bms.minsym);
+  stub_name = bms.minsym->linkage_name ();
 
   if (gdbarch_tdep (gdbarch)->code_model == MSP_SMALL_CODE_MODEL
       && msp430_in_return_stub (gdbarch, pc, stub_name))
@@ -986,8 +986,9 @@ msp430_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
 /* Register the initialization routine.  */
 
+void _initialize_msp430_tdep ();
 void
-_initialize_msp430_tdep (void)
+_initialize_msp430_tdep ()
 {
   register_gdbarch_init (bfd_arch_msp430, msp430_gdbarch_init);
 }

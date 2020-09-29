@@ -1,6 +1,6 @@
 /* Python interface to inferior threads.
 
-   Copyright (C) 2009-2019 Free Software Foundation, Inc.
+   Copyright (C) 2009-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -36,17 +36,17 @@ extern PyTypeObject thread_object_type
       }								\
   } while (0)
 
-thread_object *
+gdbpy_ref<thread_object>
 create_thread_object (struct thread_info *tp)
 {
-  thread_object *thread_obj;
+  gdbpy_ref<thread_object> thread_obj;
 
   gdbpy_ref<inferior_object> inf_obj = inferior_to_inferior_object (tp->inf);
   if (inf_obj == NULL)
     return NULL;
 
-  thread_obj = PyObject_New (thread_object, &thread_object_type);
-  if (!thread_obj)
+  thread_obj.reset (PyObject_New (thread_object, &thread_object_type));
+  if (thread_obj == NULL)
     return NULL;
 
   thread_obj->thread = tp;
@@ -130,7 +130,9 @@ thpy_get_num (PyObject *self, void *closure)
 
   THPY_REQUIRE_VALID (thread_obj);
 
-  return PyLong_FromLong (thread_obj->thread->per_inf_num);
+  gdbpy_ref<> result
+    = gdb_py_object_from_longest (thread_obj->thread->per_inf_num);
+  return result.release ();
 }
 
 /* Getter for InferiorThread.global_num.  */
@@ -142,7 +144,9 @@ thpy_get_global_num (PyObject *self, void *closure)
 
   THPY_REQUIRE_VALID (thread_obj);
 
-  return PyLong_FromLong (thread_obj->thread->global_num);
+  gdbpy_ref<> result
+    = gdb_py_object_from_longest (thread_obj->thread->global_num);
+  return result.release ();
 }
 
 /* Getter for InferiorThread.ptid  -> (pid, lwp, tid).
@@ -303,10 +307,21 @@ gdbpy_create_ptid_object (ptid_t ptid)
   lwp = ptid.lwp ();
   tid = ptid.tid ();
 
-  PyTuple_SET_ITEM (ret, 0, PyInt_FromLong (pid));
-  PyTuple_SET_ITEM (ret, 1, PyInt_FromLong (lwp));
-  PyTuple_SET_ITEM (ret, 2, PyInt_FromLong (tid));
- 
+  gdbpy_ref<> pid_obj = gdb_py_object_from_longest (pid);
+  if (pid_obj == nullptr)
+    return nullptr;
+  gdbpy_ref<> lwp_obj = gdb_py_object_from_longest (lwp);
+  if (lwp_obj == nullptr)
+    return nullptr;
+  gdbpy_ref<> tid_obj = gdb_py_object_from_longest (tid);
+  if (tid_obj == nullptr)
+    return nullptr;
+
+  /* Note that these steal references, hence the use of 'release'.  */
+  PyTuple_SET_ITEM (ret, 0, pid_obj.release ());
+  PyTuple_SET_ITEM (ret, 1, lwp_obj.release ());
+  PyTuple_SET_ITEM (ret, 2, tid_obj.release ());
+
   return ret;
 }
 

@@ -1,6 +1,6 @@
 /* Target-dependent code for the i386.
 
-   Copyright (C) 2001-2019 Free Software Foundation, Inc.
+   Copyright (C) 2001-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,6 +20,7 @@
 #ifndef I386_TDEP_H
 #define I386_TDEP_H
 
+#include "gdbarch.h"
 #include "infrun.h"
 
 struct frame_info;
@@ -144,21 +145,21 @@ struct gdbarch_tdep
   int xsave_xcr0_offset;
 
   /* Register names.  */
-  const char **register_names;
+  const char * const *register_names;
 
   /* Register number for %ymm0h.  Set this to -1 to indicate the absence
      of upper YMM register support.  */
   int ymm0h_regnum;
 
   /* Upper YMM register names.  Only used for tdesc_numbered_register.  */
-  const char **ymmh_register_names;
+  const char * const *ymmh_register_names;
 
   /* Register number for %ymm16h.  Set this to -1 to indicate the absence
   of support for YMM16-31.  */
   int ymm16h_regnum;
 
   /* YMM16-31 register names.  Only used for tdesc_numbered_register.  */
-  const char **ymm16h_register_names;
+  const char * const *ymm16h_register_names;
 
   /* Register number for %bnd0r.  Set this to -1 to indicate the absence
      bound registers.  */
@@ -173,23 +174,23 @@ struct gdbarch_tdep
   int bndcfgu_regnum;
 
   /* MPX register names.  Only used for tdesc_numbered_register.  */
-  const char **mpx_register_names;
+  const char * const *mpx_register_names;
 
   /* Register number for %zmm0h.  Set this to -1 to indicate the absence
      of ZMM_HI256 register support.  */
   int zmm0h_regnum;
 
   /* OpMask register names.  */
-  const char **k_register_names;
+  const char * const *k_register_names;
 
   /* ZMM register names.  Only used for tdesc_numbered_register.  */
-  const char **zmmh_register_names;
+  const char * const *zmmh_register_names;
 
   /* XMM16-31 register names.  Only used for tdesc_numbered_register.  */
-  const char **xmm_avx512_register_names;
+  const char * const *xmm_avx512_register_names;
 
   /* YMM16-31 register names.  Only used for tdesc_numbered_register.  */
-  const char **ymm_avx512_register_names;
+  const char * const *ymm_avx512_register_names;
 
   /* Number of PKEYS registers.  */
   int num_pkeys_regs;
@@ -198,7 +199,7 @@ struct gdbarch_tdep
   int pkru_regnum;
 
   /* PKEYS register names.  */
-  const char **pkeys_register_names;
+  const char * const *pkeys_register_names;
 
   /* Register number for %fsbase.  Set this to -1 to indicate the
      absence of segment base registers.  */
@@ -259,7 +260,7 @@ struct gdbarch_tdep
 
 /* Floating-point registers.  */
 
-/* All FPU control regusters (except for FIOFF and FOOFF) are 16-bit
+/* All FPU control registers (except for FIOFF and FOOFF) are 16-bit
    (at most) in the FPU, but are zero-extended to 32 bits in GDB's
    register cache.  */
 
@@ -398,6 +399,19 @@ extern CORE_ADDR i386_pe_skip_trampoline_code (struct frame_info *frame,
 extern CORE_ADDR i386_skip_main_prologue (struct gdbarch *gdbarch,
 					  CORE_ADDR pc);
 
+/* The "push_dummy_call" gdbarch method, optionally with the thiscall
+   calling convention.  */
+extern CORE_ADDR i386_thiscall_push_dummy_call (struct gdbarch *gdbarch,
+						struct value *function,
+						struct regcache *regcache,
+						CORE_ADDR bp_addr,
+						int nargs, struct value **args,
+						CORE_ADDR sp,
+						function_call_return_method
+						return_method,
+						CORE_ADDR struct_addr,
+						bool thiscall);
+
 /* Return whether the THIS_FRAME corresponds to a sigtramp routine.  */
 extern int i386_sigtramp_p (struct frame_info *this_frame);
 
@@ -427,7 +441,7 @@ extern void
 
 typedef buf_displaced_step_closure i386_displaced_step_closure;
 
-extern struct displaced_step_closure *i386_displaced_step_copy_insn
+extern displaced_step_closure_up i386_displaced_step_copy_insn
   (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to,
    struct regcache *regs);
 extern void i386_displaced_step_fixup (struct gdbarch *gdbarch,

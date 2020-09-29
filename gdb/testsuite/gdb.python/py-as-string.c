@@ -1,6 +1,6 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 2016-2019 Free Software Foundation, Inc.
+   Copyright 2016-2020 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ enum EnumType {
 };
 
 static enum EnumType enum_valid = ENUM_VALUE_B;
-static enum EnumType enum_invalid = 20;
+static enum EnumType enum_invalid = (enum EnumType) 20;
 
 int
 main ()

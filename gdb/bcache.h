@@ -2,7 +2,7 @@
    Written by Fred Fish <fnf@cygnus.com>
    Rewritten by Jim Blandy <jimb@cygnus.com>
 
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -136,40 +136,23 @@
   
 */
 
-struct bstring;
+namespace gdb {
 
-/* The hash functions */
-extern unsigned long hash (const void *addr, int length);
-extern unsigned long hash_continue (const void *addr, int length,
-                                    unsigned long h);
+struct bstring;
 
 struct bcache
 {
-  /* Allocate a bcache.  HASH_FN and COMPARE_FN can be used to pass in
-     custom hash, and compare functions to be used by this bcache.  If
-     HASH_FUNCTION is NULL hash() is used and if COMPARE_FUNCTION is
-     NULL memcmp() is used.  */
-
-  explicit bcache (unsigned long (*hash_fn)(const void *,
-					    int length) = nullptr,
-		   int (*compare_fn)(const void *, const void *,
-				     int length) = nullptr)
-    : m_hash_function (hash_fn == nullptr ? hash : hash_fn),
-      m_compare_function (compare_fn == nullptr ? compare : compare_fn)
-  {
-  }
-
-  ~bcache ();
+  virtual ~bcache ();
 
   /* Find a copy of the LENGTH bytes at ADDR in BCACHE.  If BCACHE has
      never seen those bytes before, add a copy of them to BCACHE.  In
      either case, return a pointer to BCACHE's copy of that string.
-     Since the cached value is ment to be read-only, return a const
+     Since the cached value is meant to be read-only, return a const
      buffer.  If ADDED is not NULL, set *ADDED to true if the bytes
      were newly added to the cache, or to false if the bytes were
      found in the cache.  */
 
-  const void *insert (const void *addr, int length, int *added = nullptr);
+  const void *insert (const void *addr, int length, bool *added = nullptr);
 
   /* Print statistics on this bcache's memory usage and efficacity at
      eliminating duplication.  TYPE should be a string describing the
@@ -177,6 +160,16 @@ struct bcache
      `printf_filtered' and its ilk.  */
   void print_statistics (const char *type);
   int memory_used ();
+
+protected:
+
+  /* Hash function to be used for this bcache object.  Defaults to
+     fast_hash.  */
+  virtual unsigned long hash (const void *addr, int length);
+
+  /* Compare function to be used for this bcache object.  Defaults to
+     memcmp.  */
+  virtual int compare (const void *left, const void *right, int length);
 
 private:
 
@@ -208,17 +201,10 @@ private:
      length/data compare missed.  */
   unsigned long m_half_hash_miss_count = 0;
 
-  /* Hash function to be used for this bcache object.  */
-  unsigned long (*m_hash_function)(const void *addr, int length);
-
-  /* Compare function to be used for this bcache object.  */
-  int (*m_compare_function)(const void *, const void *, int length);
-
-  /* Default compare function.  */
-  static int compare (const void *addr1, const void *addr2, int length);
-
   /* Expand the hash table.  */
   void expand_hash_table ();
 };
+
+} /* namespace gdb */
 
 #endif /* BCACHE_H */

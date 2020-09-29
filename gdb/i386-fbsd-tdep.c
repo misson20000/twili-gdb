@@ -1,6 +1,6 @@
 /* Target-dependent code for FreeBSD/i386.
 
-   Copyright (C) 2003-2019 Free Software Foundation, Inc.
+   Copyright (C) 2003-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -24,12 +24,13 @@
 #include "regcache.h"
 #include "regset.h"
 #include "i386-fbsd-tdep.h"
-#include "common/x86-xstate.h"
+#include "gdbsupport/x86-xstate.h"
 
 #include "i386-tdep.h"
 #include "i387-tdep.h"
 #include "fbsd-tdep.h"
 #include "solib-svr4.h"
+#include "inferior.h"
 
 /* Support for signal handlers.  */
 
@@ -233,7 +234,7 @@ i386fbsd_core_read_xcr0 (bfd *abfd)
 
   if (xstate)
     {
-      size_t size = bfd_section_size (abfd, xstate);
+      size_t size = bfd_section_size (xstate);
 
       /* Check extended state size.  */
       if (size < X86_XSTATE_AVX_SIZE)
@@ -332,7 +333,8 @@ i386fbsd_get_thread_local_address (struct gdbarch *gdbarch, ptid_t ptid,
   if (tdep->fsbase_regnum == -1)
     error (_("Unable to fetch %%gsbase"));
 
-  regcache = get_thread_arch_regcache (ptid, gdbarch);
+  regcache = get_thread_arch_regcache (current_inferior ()->process_target (),
+				       ptid, gdbarch);
 
   target_fetch_registers (regcache, tdep->fsbase_regnum + 1);
 
@@ -449,8 +451,9 @@ i386fbsd4_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 					i386fbsd_get_thread_local_address);
 }
 
+void _initialize_i386fbsd_tdep ();
 void
-_initialize_i386fbsd_tdep (void)
+_initialize_i386fbsd_tdep ()
 {
   gdbarch_register_osabi (bfd_arch_i386, 0, GDB_OSABI_FREEBSD,
 			  i386fbsd4_init_abi);

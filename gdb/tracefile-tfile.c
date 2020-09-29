@@ -1,6 +1,6 @@
 /* Trace file TFILE format support in GDB.
 
-   Copyright (C) 1997-2019 Free Software Foundation, Inc.
+   Copyright (C) 1997-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,8 +20,8 @@
 #include "defs.h"
 #include "tracefile.h"
 #include "readline/tilde.h"
-#include "common/filestuff.h"
-#include "common/rsp-low.h" /* bin2hex */
+#include "gdbsupport/filestuff.h"
+#include "gdbsupport/rsp-low.h" /* bin2hex */
 #include "regcache.h"
 #include "inferior.h"
 #include "gdbthread.h"
@@ -31,7 +31,8 @@
 #include "remote.h"
 #include "xml-tdesc.h"
 #include "target-descriptions.h"
-#include "common/buffer.h"
+#include "gdbsupport/buffer.h"
+#include "gdbsupport/pathstuff.h"
 #include <algorithm>
 
 #ifndef O_LARGEFILE
@@ -43,7 +44,8 @@
 static const target_info tfile_target_info = {
   "tfile",
   N_("Local trace dump file"),
-  N_("Use a trace file as a target.  Specify the filename of the trace file.")
+  N_("Use a trace file as a target.\n\
+Specify the filename of the trace file.")
 };
 
 class tfile_target final : public tracefile_target
@@ -469,8 +471,7 @@ tfile_target_open (const char *arg, int from_tty)
 
   gdb::unique_xmalloc_ptr<char> filename (tilde_expand (arg));
   if (!IS_ABSOLUTE_PATH (filename.get ()))
-    filename.reset (concat (current_directory, "/", filename.get (),
-			    (char *) NULL));
+    filename = gdb_abspath (filename.get ());
 
   flags = O_BINARY | O_LARGEFILE;
   flags |= O_RDONLY;
@@ -555,8 +556,9 @@ tfile_target_open (const char *arg, int from_tty)
     }
 
   inferior_appeared (current_inferior (), TFILE_PID);
-  inferior_ptid = ptid_t (TFILE_PID);
-  add_thread_silent (inferior_ptid);
+
+  thread_info *thr = add_thread_silent (&tfile_ops, ptid_t (TFILE_PID));
+  switch_to_thread (thr);
 
   if (ts->traceframe_count <= 0)
     warning (_("No traceframes present in this file."));
@@ -615,10 +617,9 @@ tfile_interp_line (char *line, struct uploaded_tp **utpp,
 void
 tfile_target::close ()
 {
-  if (trace_fd < 0)
-    return;
+  gdb_assert (trace_fd != -1);
 
-  inferior_ptid = null_ptid;	/* Avoid confusion from thread stuff.  */
+  switch_to_no_thread ();	/* Avoid confusion from thread stuff.  */
   exit_inferior_silent (current_inferior ());
 
   ::close (trace_fd);
@@ -1131,8 +1132,9 @@ tfile_append_tdesc_line (const char *line)
   buffer_grow_str (&trace_tdesc, "\n");
 }
 
+void _initialize_tracefile_tfile ();
 void
-_initialize_tracefile_tfile (void)
+_initialize_tracefile_tfile ()
 {
   add_target (tfile_target_info, tfile_target_open, filename_completer);
 }

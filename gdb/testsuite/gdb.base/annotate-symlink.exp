@@ -1,4 +1,4 @@
-# Copyright (C) 2019 Free Software Foundation, Inc.
+# Copyright (C) 2019-2020 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -47,5 +47,8 @@ gdb_breakpoint func message
 
 gdb_test_no_output "set annotate 1"
 
+# The patch to cause this output was reverted.
+# See PR breakpoints/24915.
+setup_xfail *-*-* 24915
 gdb_test "continue" \
     "Breakpoint .* func .*realname-expand-link.c:$decimal\r\n\032\032.*realname-expand-link.c:.*"

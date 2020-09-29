@@ -1,7 +1,7 @@
 /* Functions that provide the mechanism to parse a syscall XML file
    and get its values.
 
-   Copyright (C) 2009-2019 Free Software Foundation, Inc.
+   Copyright (C) 2009-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -221,9 +221,10 @@ syscall_create_syscall_desc (struct syscalls_info *syscalls_info,
   /*  Add syscall to its groups.  */
   if (groups != NULL)
     {
-      for (char *group = strtok (groups, ",");
+      char *saveptr;
+      for (char *group = strtok_r (groups, ",", &saveptr);
 	   group != NULL;
-	   group = strtok (NULL, ","))
+	   group = strtok_r (NULL, ",", &saveptr))
 	syscall_group_add_syscall (syscalls_info, sysdesc, group);
     }
 }
@@ -286,8 +287,7 @@ static const struct gdb_xml_element syselements[] = {
 };
 
 static struct syscalls_info *
-syscall_parse_xml (const char *document, xml_fetch_another fetcher,
-                   void *fetcher_baton)
+syscall_parse_xml (const char *document, xml_fetch_another fetcher)
 {
   struct syscall_parsing_data data;
   syscalls_info_up sysinfo (new syscalls_info ());
@@ -316,13 +316,18 @@ static struct syscalls_info *
 xml_init_syscalls_info (const char *filename)
 {
   gdb::optional<gdb::char_vector> full_file
-    = xml_fetch_content_from_file (filename, gdb_datadir);
+    = xml_fetch_content_from_file (filename,
+				   const_cast<char *>(gdb_datadir.c_str ()));
   if (!full_file)
     return NULL;
 
-  return syscall_parse_xml (full_file->data (),
-			    xml_fetch_content_from_file,
-			    (void *) ldirname (filename).c_str ());
+  const std::string dirname = ldirname (filename);
+  auto fetch_another = [&dirname] (const char *name)
+    {
+      return xml_fetch_content_from_file (name, dirname.c_str ());
+    };
+
+  return syscall_parse_xml (full_file->data (), fetch_another);
 }
 
 /* Initializes the syscalls_info structure according to the
@@ -336,7 +341,7 @@ init_syscalls_info (struct gdbarch *gdbarch)
   /* Should we re-read the XML info for this target?  */
   if (syscalls_info != NULL && !syscalls_info->my_gdb_datadir.empty ()
       && filename_cmp (syscalls_info->my_gdb_datadir.c_str (),
-		       gdb_datadir) != 0)
+		       gdb_datadir.c_str ()) != 0)
     {
       /* The data-directory changed from the last time we used it.
 	 It means that we have to re-read the XML info.  */
@@ -361,7 +366,7 @@ init_syscalls_info (struct gdbarch *gdbarch)
     {
       if (xml_syscall_file != NULL)
 	warning (_("Could not load the syscall XML file `%s/%s'."),
-		 gdb_datadir, xml_syscall_file);
+		 gdb_datadir.c_str (), xml_syscall_file);
       else
 	warning (_("There is no XML file to open."));
 

@@ -1,6 +1,6 @@
 /* Definitions for expressions stored in reversed prefix form, for GDB.
 
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,6 +19,8 @@
 
 #if !defined (EXPRESSION_H)
 #define EXPRESSION_H 1
+
+#include "gdbtypes.h"
 
 /* While parsing expressions we need to track the innermost lexical block
    that we encounter.  In some situations we need to track the innermost
@@ -152,6 +154,18 @@ enum noside
 
 extern struct value *evaluate_subexp_standard
   (struct type *, struct expression *, int *, enum noside);
+
+/* Evaluate a function call.  The function to be called is in ARGVEC[0] and
+   the arguments passed to the function are in ARGVEC[1..NARGS].
+   FUNCTION_NAME is the name of the function, if known.
+   DEFAULT_RETURN_TYPE is used as the function's return type if the return
+   type is unknown.  */
+
+extern struct value *evaluate_subexp_do_call (expression *exp,
+					      enum noside noside,
+					      int nargs, value **argvec,
+					      const char *function_name,
+					      type *default_return_type);
 
 /* From expprint.c */
 

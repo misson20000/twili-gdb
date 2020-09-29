@@ -1,6 +1,6 @@
 /* Target-dependent code for the Toshiba MeP for GDB, the GNU debugger.
 
-   Copyright (C) 2001-2019 Free Software Foundation, Inc.
+   Copyright (C) 2001-2020 Free Software Foundation, Inc.
 
    Contributed by Red Hat, Inc.
 
@@ -48,8 +48,8 @@
 
 /* Get the user's customized MeP coprocessor register names from
    libopcodes.  */
-#include "../opcodes/mep-desc.h"
-#include "../opcodes/mep-opc.h"
+#include "opcodes/mep-desc.h"
+#include "opcodes/mep-opc.h"
 
 
 /* The gdbarch_tdep structure.  */
@@ -284,7 +284,7 @@ me_module_register_set (CONFIG_ATTR me_module,
 
 /* Given a hardware table entry HW representing a register set, return
    a pointer to the keyword table with all the register names.  If HW
-   is NULL, return NULL, to propage the "no such register set" info
+   is NULL, return NULL, to propagate the "no such register set" info
    along.  */
 static CGEN_KEYWORD *
 register_set_keyword_table (const CGEN_HW_ENTRY *hw)
@@ -2448,8 +2448,9 @@ mep_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   return gdbarch;
 }
 
+void _initialize_mep_tdep ();
 void
-_initialize_mep_tdep (void)
+_initialize_mep_tdep ()
 {
   mep_csr_reggroup = reggroup_new ("csr", USER_REGGROUP);
   mep_cr_reggroup  = reggroup_new ("cr", USER_REGGROUP); 

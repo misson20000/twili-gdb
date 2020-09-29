@@ -1,6 +1,6 @@
 /* Common target dependent for AArch64 systems.
 
-   Copyright (C) 2018-2019 Free Software Foundation, Inc.
+   Copyright (C) 2018-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,13 +19,13 @@
 
 #include <sys/utsname.h>
 #include <sys/uio.h>
-#include "common/common-defs.h"
+#include "gdbsupport/common-defs.h"
 #include "elf/external.h"
 #include "elf/common.h"
 #include "aarch64-sve-linux-ptrace.h"
 #include "arch/aarch64.h"
-#include "common/common-regcache.h"
-#include "common/byte-vector.h"
+#include "gdbsupport/common-regcache.h"
+#include "gdbsupport/byte-vector.h"
 
 /* See nat/aarch64-sve-linux-ptrace.h.  */
 
@@ -92,11 +92,26 @@ aarch64_sve_set_vq (int tid, uint64_t vq)
 bool
 aarch64_sve_set_vq (int tid, struct reg_buffer_common *reg_buf)
 {
-  if (reg_buf->get_register_status (AARCH64_SVE_VG_REGNUM) != REG_VALID)
-    return false;
-
   uint64_t reg_vg = 0;
-  reg_buf->raw_collect (AARCH64_SVE_VG_REGNUM, &reg_vg);
+
+  /* The VG register may not be valid if we've not collected any value yet.
+     This can happen, for example,  if we're restoring the regcache after an
+     inferior function call, and the VG register comes after the Z
+     registers.  */
+  if (reg_buf->get_register_status (AARCH64_SVE_VG_REGNUM) != REG_VALID)
+  {
+    /* If vg is not available yet, fetch it from ptrace.  The VG value from
+       ptrace is likely the correct one.  */
+    uint64_t vq = aarch64_sve_get_vq (tid);
+
+    /* If something went wrong, just bail out.  */
+    if (vq == 0)
+      return false;
+
+    reg_vg = sve_vg_from_vq (vq);
+  }
+  else
+    reg_buf->raw_collect (AARCH64_SVE_VG_REGNUM, &reg_vg);
 
   return aarch64_sve_set_vq (tid, sve_vq_from_vg (reg_vg));
 }

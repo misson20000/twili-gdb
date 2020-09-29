@@ -1,6 +1,6 @@
 /* Filename-seen cache for the GNU debugger, GDB.
 
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -21,7 +21,7 @@
 #define FILENAME_SEEN_CACHE_H
 
 #include "defs.h"
-#include "common/function-view.h"
+#include "gdbsupport/function-view.h"
 
 /* Cache to watch for file names already seen.  */
 
@@ -29,7 +29,6 @@ class filename_seen_cache
 {
 public:
   filename_seen_cache ();
-  ~filename_seen_cache ();
 
   DISABLE_COPY_AND_ASSIGN (filename_seen_cache);
 
@@ -55,12 +54,12 @@ public:
 	return 1;
       };
 
-    htab_traverse_noresize (m_tab, erased_cb, &callback);
+    htab_traverse_noresize (m_tab.get (), erased_cb, &callback);
   }
 
 private:
   /* Table of files seen so far.  */
-  htab_t m_tab;
+  htab_up m_tab;
 };
 
 #endif /* FILENAME_SEEN_CACHE_H */

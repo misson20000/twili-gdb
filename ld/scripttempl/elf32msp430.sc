@@ -1,4 +1,4 @@
-# Copyright (C) 2014-2019 Free Software Foundation, Inc.
+# Copyright (C) 2014-2020 Free Software Foundation, Inc.
 #
 # Copying and distribution of this file, with or without modification,
 # are permitted in any medium without royalty provided the copyright
@@ -23,7 +23,7 @@ fi
 
 
 cat <<EOF
-/* Copyright (C) 2014-2019 Free Software Foundation, Inc.
+/* Copyright (C) 2014-2020 Free Software Foundation, Inc.
 
    Copying and distribution of this script, with or without modification,
    are permitted in any medium without royalty provided the copyright
@@ -171,6 +171,8 @@ SECTIONS
 
     *(.either.text.* .either.text)
 
+    *(.upper.text.* .upper.text)
+
     . = ALIGN(2);
     *(SORT_NONE(.fini9))
     *(SORT_NONE(.fini8))
@@ -198,20 +200,26 @@ SECTIONS
     ${RELOCATING+*(.rodata1)
 
     *(.either.rodata.*) *(.either.rodata)
+
+    *(.upper.rodata.* .upper.rodata)
+
     *(.eh_frame_hdr)
     KEEP (*(.eh_frame))
 
     KEEP (*(.gcc_except_table)) *(.gcc_except_table.*)
 
+    . = ALIGN(2);
     PROVIDE (__preinit_array_start = .);
     KEEP (*(.preinit_array))
     PROVIDE (__preinit_array_end = .);
 
+    . = ALIGN(2);
     PROVIDE (__init_array_start = .);
     KEEP (*(SORT(.init_array.*)))
     KEEP (*(.init_array))
     PROVIDE (__init_array_end = .);
 
+    . = ALIGN(2);
     PROVIDE (__fini_array_start = .);
     KEEP (*(.fini_array))
     KEEP (*(SORT(.fini_array.*)))
@@ -267,6 +275,8 @@ SECTIONS
 
     *(.either.data.* .either.data)
 
+    *(.upper.data.* .upper.data)
+
     *(.got.plt) *(.got)
     . = ALIGN(2);
     *(.sdata .sdata.* .gnu.linkonce.s.*)
@@ -286,6 +296,7 @@ SECTIONS
     . = ALIGN(2);}
     *(.bss)
     ${RELOCATING+*(.either.bss.* .either.bss)
+    *(.upper.bss.* .upper.bss)
     *(COMMON)
     PROVIDE (__bss_end = .);}
   } ${RELOCATING+ > data}

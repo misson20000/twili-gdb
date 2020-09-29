@@ -1,6 +1,6 @@
 /* BSD user-level threads support.
 
-   Copyright (C) 2005-2019 Free Software Foundation, Inc.
+   Copyright (C) 2005-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -53,7 +53,7 @@ struct bsd_uthread_target final : public target_ops
   void fetch_registers (struct regcache *, int) override;
   void store_registers (struct regcache *, int) override;
 
-  ptid_t wait (ptid_t, struct target_waitstatus *, int) override;
+  ptid_t wait (ptid_t, struct target_waitstatus *, target_wait_flags) override;
   void resume (ptid_t, int, enum gdb_signal) override;
 
   bool thread_alive (ptid_t ptid) override;
@@ -269,7 +269,7 @@ bsd_uthread_inferior_created (struct target_ops *ops, int from_tty)
 }
 
 /* Likely candidates for the threads library.  */
-static const char *bsd_uthread_solib_names[] =
+static const char * const bsd_uthread_solib_names[] =
 {
   "/usr/lib/libc_r.so",		/* FreeBSD */
   "/usr/lib/libpthread.so",	/* OpenBSD */
@@ -279,7 +279,7 @@ static const char *bsd_uthread_solib_names[] =
 static void
 bsd_uthread_solib_loaded (struct so_list *so)
 {
-  const char **names = bsd_uthread_solib_names;
+  const char * const *names = bsd_uthread_solib_names;
 
   for (names = bsd_uthread_solib_names; *names; names++)
     {
@@ -377,13 +377,15 @@ bsd_uthread_target::store_registers (struct regcache *regcache, int regnum)
 
 ptid_t
 bsd_uthread_target::wait (ptid_t ptid, struct target_waitstatus *status,
-			  int options)
+			  target_wait_flags options)
 {
   enum bfd_endian byte_order = gdbarch_byte_order (target_gdbarch ());
   CORE_ADDR addr;
+  process_stratum_target *beneath
+    = as_process_stratum_target (this->beneath ());
 
   /* Pass the request to the layer beneath.  */
-  ptid = beneath ()->wait (ptid, status, options);
+  ptid = beneath->wait (ptid, status, options);
 
   /* If the process is no longer alive, there's no point in figuring
      out the thread ID.  It will fail anyway.  */
@@ -414,13 +416,13 @@ bsd_uthread_target::wait (ptid_t ptid, struct target_waitstatus *status,
      ptid with tid set, then ptid is still the initial thread of
      the process.  Notify GDB core about it.  */
   if (inferior_ptid.tid () == 0
-      && ptid.tid () != 0 && !in_thread_list (ptid))
-    thread_change_ptid (inferior_ptid, ptid);
+      && ptid.tid () != 0 && !in_thread_list (beneath, ptid))
+    thread_change_ptid (beneath, inferior_ptid, ptid);
 
   /* Don't let the core see a ptid without a corresponding thread.  */
-  thread_info *thread = find_thread_ptid (ptid);
+  thread_info *thread = find_thread_ptid (beneath, ptid);
   if (thread == NULL || thread->state == THREAD_EXITED)
-    add_thread (ptid);
+    add_thread (beneath, ptid);
 
   return ptid;
 }
@@ -467,16 +469,18 @@ bsd_uthread_target::update_thread_list ()
     {
       ptid_t ptid = ptid_t (pid, 0, addr);
 
-      thread_info *thread = find_thread_ptid (ptid);
+      process_stratum_target *proc_target
+	= as_process_stratum_target (this->beneath ());
+      thread_info *thread = find_thread_ptid (proc_target, ptid);
       if (thread == nullptr || thread->state == THREAD_EXITED)
 	{
 	  /* If INFERIOR_PTID doesn't have a tid member yet, then ptid
 	     is still the initial thread of the process.  Notify GDB
 	     core about it.  */
 	  if (inferior_ptid.tid () == 0)
-	    thread_change_ptid (inferior_ptid, ptid);
+	    thread_change_ptid (proc_target, inferior_ptid, ptid);
 	  else
-	    add_thread (ptid);
+	    add_thread (proc_target, ptid);
 	}
 
       addr = bsd_uthread_read_memory_address (addr + offset);
@@ -484,7 +488,7 @@ bsd_uthread_target::update_thread_list ()
 }
 
 /* Possible states a thread can be in.  */
-static const char *bsd_uthread_state[] =
+static const char * const bsd_uthread_state[] =
 {
   "RUNNING",
   "SIGTHREAD",
@@ -540,8 +544,9 @@ bsd_uthread_target::pid_to_str (ptid_t ptid)
   return normal_pid_to_str (ptid);
 }
 
+void _initialize_bsd_uthread ();
 void
-_initialize_bsd_uthread (void)
+_initialize_bsd_uthread ()
 {
   bsd_uthread_data = gdbarch_data_register_pre_init (bsd_uthread_init);
 

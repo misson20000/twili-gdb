@@ -1,6 +1,6 @@
 /* CLI Definitions for GDB, the GNU debugger.
 
-   Copyright (C) 2002-2019 Free Software Foundation, Inc.
+   Copyright (C) 2002-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -467,8 +467,9 @@ cli_interp_factory (const char *name)
 
 /* Standard gdb initialization hook.  */
 
+void _initialize_cli_interp ();
 void
-_initialize_cli_interp (void)
+_initialize_cli_interp ()
 {
   interp_factory_register (INTERP_CONSOLE, cli_interp_factory);
 

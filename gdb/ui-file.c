@@ -1,6 +1,6 @@
 /* UI_FILE - a generic STDIO like output stream.
 
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -22,8 +22,9 @@
 #include "defs.h"
 #include "ui-file.h"
 #include "gdb_obstack.h"
-#include "gdb_select.h"
-#include "common/filestuff.h"
+#include "gdbsupport/gdb_select.h"
+#include "gdbsupport/filestuff.h"
+#include "cli/cli-style.h"
 
 null_file null_stream;
 
@@ -89,25 +90,11 @@ null_file::write_async_safe (const char *buf, long sizeof_buf)
 
 
 
-void
-gdb_flush (struct ui_file *file)
-{
-  file->flush ();
-}
-
-int
-ui_file_isatty (struct ui_file *file)
-{
-  return file->isatty ();
-}
-
 /* true if the gdb terminal supports styling, and styling is enabled.  */
 
 static bool
 term_cli_styling ()
 {
-  extern int cli_styling;
-
   if (!cli_styling)
     return false;
 
@@ -125,35 +112,6 @@ term_cli_styling ()
     return false;
 #endif
   return true;
-}
-
-
-void
-ui_file_write (struct ui_file *file,
-		const char *buf,
-		long length_buf)
-{
-  file->write (buf, length_buf);
-}
-
-void
-ui_file_write_async_safe (struct ui_file *file,
-			  const char *buf,
-			  long length_buf)
-{
-  file->write_async_safe (buf, length_buf);
-}
-
-long
-ui_file_read (struct ui_file *file, char *buf, long length_buf)
-{
-  return file->read (buf, length_buf);
-}
-
-void
-fputs_unfiltered (const char *buf, struct ui_file *file)
-{
-  file->puts (buf);
 }
 
 
@@ -303,7 +261,7 @@ stdio_file::isatty ()
 bool
 stdio_file::can_emit_style_escape ()
 {
-  return (this == gdb_stdout
+  return ((this == gdb_stdout || this == gdb_stderr)
 	  && this->isatty ()
 	  && term_cli_styling ());
 }
@@ -316,7 +274,7 @@ stdio_file::can_emit_style_escape ()
 void
 stderr_file::write (const char *buf, long length_buf)
 {
-  gdb_flush (gdb_stdout);
+  gdb_stdout->flush ();
   stdio_file::write (buf, length_buf);
 }
 
@@ -326,7 +284,7 @@ stderr_file::write (const char *buf, long length_buf)
 void
 stderr_file::puts (const char *linebuffer)
 {
-  gdb_flush (gdb_stdout);
+  gdb_stdout->flush ();
   stdio_file::puts (linebuffer);
 }
 
@@ -392,7 +350,7 @@ tee_file::term_out ()
 bool
 tee_file::can_emit_style_escape ()
 {
-  return (this == gdb_stdout
+  return ((this == gdb_stdout || this == gdb_stderr)
 	  && m_one->term_out ()
 	  && term_cli_styling ());
 }

@@ -1,6 +1,6 @@
 /* TUI support I/O functions.
 
-   Copyright (C) 1998-2019 Free Software Foundation, Inc.
+   Copyright (C) 1998-2020 Free Software Foundation, Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -27,7 +27,8 @@
 struct ui_out;
 class cli_ui_out;
 
-/* Print the string in the curses command window.  */
+/* Print the string in the given curses window.  If no window is
+   provided, the command window is used.  */
 extern void tui_puts (const char *, WINDOW * = nullptr);
 
 /* Print LENGTH characters from the buffer pointed to by BUF to the
@@ -45,11 +46,11 @@ extern void tui_initialize_io (void);
    changed the edited text.  */
 extern void tui_redisplay_readline (void);
 
-/* Expand TABs into spaces.  */
-extern char *tui_expand_tabs (const char *, int);
-
 /* Enter/leave reverse video mode.  */
 extern void tui_set_reverse_mode (WINDOW *w, bool reverse);
+
+/* Apply STYLE to the window.  */
+extern void tui_apply_style (WINDOW *w, ui_file_style style);
 
 extern struct ui_out *tui_out;
 extern cli_ui_out *tui_old_uiout;

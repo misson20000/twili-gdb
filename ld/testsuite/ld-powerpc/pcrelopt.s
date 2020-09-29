@@ -103,6 +103,18 @@ _start:
 		.reloc .-8,R_PPC64_PCREL_OPT,0f-(.-8)
 0:	stxv 0,0(9)
 
+#offsets are allowed too
+	pld 9,sym@got@pcrel
+0:
+	lbz 3,0x1234(9)
+	.reloc 0b-8,R_PPC64_PCREL_OPT,(.-4)-(0b-8)
+
+#and prefix insns as the second insn
+	pld 9,sym@got@pcrel
+0:
+	plq 4,0x12345678(9)
+	.reloc 0b-8,R_PPC64_PCREL_OPT,(.-8)-(0b-8)
+
 # This should not optimize
 	.extern i
 	.type i,@object
@@ -114,6 +126,22 @@ _start:
 # ie. change the pld to paddi, leaving the lbz as is.
 	pld 7,sym@got@pcrel
 	lbz 6,0(7)
+
+	pld 9,sym@got@pcrel
+		.reloc .-8,R_PPC64_PCREL_OPT,0f-(.-8)
+0:	lxvp 62,0(9)
+
+	pld 9,sym@got@pcrel
+		.reloc .-8,R_PPC64_PCREL_OPT,0f-(.-8)
+0:	lxvp 0,0(9)
+
+	pld 9,sym@got@pcrel
+		.reloc .-8,R_PPC64_PCREL_OPT,0f-(.-8)
+0:	stxvp 62,0(9)
+
+	pld 9,sym@got@pcrel
+		.reloc .-8,R_PPC64_PCREL_OPT,0f-(.-8)
+0:	stxvp 0,0(9)
 
 	.data
 sym:	.space 32

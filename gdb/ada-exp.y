@@ -1,5 +1,5 @@
 /* YACC parser for Ada expressions, for GDB.
-   Copyright (C) 1986-2019 Free Software Foundation, Inc.
+   Copyright (C) 1986-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -812,11 +812,11 @@ write_object_renaming (struct parser_state *par_state,
   if (orig_left_context == NULL)
     orig_left_context = get_selected_block (NULL);
 
-  name = (char *) obstack_copy0 (&temp_parse_space, renamed_entity,
-				 renamed_entity_len);
+  name = obstack_strndup (&temp_parse_space, renamed_entity,
+			  renamed_entity_len);
   ada_lookup_encoded_symbol (name, orig_left_context, VAR_DOMAIN, &sym_info);
   if (sym_info.symbol == NULL)
-    error (_("Could not find renamed variable: %s"), ada_decode (name));
+    error (_("Could not find renamed variable: %s"), ada_decode (name).c_str ());
   else if (SYMBOL_CLASS (sym_info.symbol) == LOC_TYPEDEF)
     /* We have a renaming of an old-style renaming symbol.  Don't
        trust the block information.  */
@@ -881,9 +881,8 @@ write_object_renaming (struct parser_state *par_state,
 	    if (end == NULL)
 	      end = renaming_expr + strlen (renaming_expr);
 
-	    index_name
-	      = (char *) obstack_copy0 (&temp_parse_space, renaming_expr,
-					end - renaming_expr);
+	    index_name = obstack_strndup (&temp_parse_space, renaming_expr,
+					  end - renaming_expr);
 	    renaming_expr = end;
 
 	    ada_lookup_encoded_symbol (index_name, orig_left_context,
@@ -1041,7 +1040,7 @@ find_primitive_type (struct parser_state *par_state, char *name)
 	(char *) alloca (strlen (name) + sizeof ("standard__"));
       strcpy (expanded_name, "standard__");
       strcat (expanded_name, name);
-      sym = ada_lookup_symbol (expanded_name, NULL, VAR_DOMAIN, NULL).symbol;
+      sym = ada_lookup_symbol (expanded_name, NULL, VAR_DOMAIN).symbol;
       if (sym != NULL && SYMBOL_CLASS (sym) == LOC_TYPEDEF)
 	type = SYMBOL_TYPE (sym);
     }
@@ -1103,13 +1102,11 @@ static void
 write_ambiguous_var (struct parser_state *par_state,
 		     const struct block *block, char *name, int len)
 {
-  struct symbol *sym = XOBNEW (&temp_parse_space, struct symbol);
+  struct symbol *sym = new (&temp_parse_space) symbol ();
 
-  memset (sym, 0, sizeof (struct symbol));
   SYMBOL_DOMAIN (sym) = UNDEF_DOMAIN;
-  SYMBOL_LINKAGE_NAME (sym)
-    = (const char *) obstack_copy0 (&temp_parse_space, name, len);
-  SYMBOL_LANGUAGE (sym) = language_ada;
+  sym->set_linkage_name (obstack_strndup (&temp_parse_space, name, len));
+  sym->set_language (language_ada, nullptr);
 
   write_exp_elt_opcode (par_state, OP_VAR_VALUE);
   write_exp_elt_block (par_state, block);
@@ -1161,7 +1158,7 @@ get_symbol_field_type (struct symbol *sym, char *encoded_field_name)
 
       fieldno = ada_get_field_index (type, field_name, 1);
       if (fieldno >= 0)
-        return TYPE_FIELD_TYPE (type, fieldno);
+        return type->field (fieldno).type ();
 
       subfield_name = field_name;
       while (*subfield_name != '\0' && *subfield_name != '.' 
@@ -1176,7 +1173,7 @@ get_symbol_field_type (struct symbol *sym, char *encoded_field_name)
       if (fieldno < 0)
         return NULL;
 
-      type = TYPE_FIELD_TYPE (type, fieldno);
+      type = type->field (fieldno).type ();
       field_name = subfield_name;
     }
 
@@ -1206,8 +1203,7 @@ write_var_or_type (struct parser_state *par_state,
 
   encoded_name = ada_encode (name0.ptr);
   name_len = strlen (encoded_name);
-  encoded_name
-    = (char *) obstack_copy0 (&temp_parse_space, encoded_name, name_len);
+  encoded_name = obstack_strndup (&temp_parse_space, encoded_name, name_len);
   for (depth = 0; depth < MAX_RENAMING_CHAIN_LENGTH; depth += 1)
     {
       int tail_index;
@@ -1390,12 +1386,15 @@ convert_char_literal (struct type *type, LONGEST val)
   if (type == NULL)
     return val;
   type = check_typedef (type);
-  if (TYPE_CODE (type) != TYPE_CODE_ENUM)
+  if (type->code () != TYPE_CODE_ENUM)
     return val;
 
-  xsnprintf (name, sizeof (name), "QU%02x", (int) val);
+  if ((val >= 'a' && val <= 'z') || (val >= '0' && val <= '9'))
+    xsnprintf (name, sizeof (name), "Q%c", (int) val);
+  else
+    xsnprintf (name, sizeof (name), "QU%02x", (int) val);
   size_t len = strlen (name);
-  for (f = 0; f < TYPE_NFIELDS (type); f += 1)
+  for (f = 0; f < type->num_fields (); f += 1)
     {
       /* Check the suffix because an enum constant in a package will
 	 have a name like "pkg__QUxx".  This is safe enough because we
@@ -1457,8 +1456,9 @@ type_system_address (struct parser_state *par_state)
   return  type != NULL ? type : parse_type (par_state)->builtin_data_ptr;
 }
 
+void _initialize_ada_exp ();
 void
-_initialize_ada_exp (void)
+_initialize_ada_exp ()
 {
   obstack_init (&temp_parse_space);
 }

@@ -2,7 +2,7 @@
    Written by Fred Fish <fnf@cygnus.com>
    Rewritten by Jim Blandy <jimb@cygnus.com>
 
-   Copyright (C) 1999-2019 Free Software Foundation, Inc.
+   Copyright (C) 1999-2020 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -22,6 +22,10 @@
 #include "defs.h"
 #include "gdb_obstack.h"
 #include "bcache.h"
+
+#include <algorithm>
+
+namespace gdb {
 
 /* The type used to hold a single bcache string.  The user data is
    stored in d.data.  Since it can be any type, it needs to have the
@@ -49,31 +53,6 @@ struct bstring
   d;
 };
 
-/* The old hash function was stolen from SDBM. This is what DB 3.0
-   uses now, and is better than the old one.  */
-
-unsigned long
-hash(const void *addr, int length)
-{
-  return hash_continue (addr, length, 0);
-}
-
-/* Continue the calculation of the hash H at the given address.  */
-
-unsigned long
-hash_continue (const void *addr, int length, unsigned long h)
-{
-  const unsigned char *k, *e;
-
-  k = (const unsigned char *)addr;
-  e = k+length;
-  for (; k< e;++k)
-    {
-      h *=16777619;
-      h ^= *k;
-    }
-  return (h);
-}
 
 /* Growing the bcache's hash table.  */
 
@@ -134,7 +113,7 @@ bcache::expand_hash_table ()
 	  struct bstring **new_bucket;
 	  next = s->next;
 
-	  new_bucket = &new_buckets[(m_hash_function (&s->d.data, s->length)
+	  new_bucket = &new_buckets[(this->hash (&s->d.data, s->length)
 				     % new_num_buckets)];
 	  s->next = *new_bucket;
 	  *new_bucket = s;
@@ -161,15 +140,15 @@ bcache::expand_hash_table ()
    returning an old entry.  */
 
 const void *
-bcache::insert (const void *addr, int length, int *added)
+bcache::insert (const void *addr, int length, bool *added)
 {
   unsigned long full_hash;
   unsigned short half_hash;
   int hash_index;
   struct bstring *s;
 
-  if (added)
-    *added = 0;
+  if (added != nullptr)
+    *added = false;
 
   /* Lazily initialize the obstack.  This can save quite a bit of
      memory in some cases.  */
@@ -188,7 +167,7 @@ bcache::insert (const void *addr, int length, int *added)
   m_total_count++;
   m_total_size += length;
 
-  full_hash = m_hash_function (addr, length);
+  full_hash = this->hash (addr, length);
 
   half_hash = (full_hash >> 16);
   hash_index = full_hash % m_num_buckets;
@@ -201,7 +180,7 @@ bcache::insert (const void *addr, int length, int *added)
       if (s->half_hash == half_hash)
 	{
 	  if (s->length == length
-	      && m_compare_function (&s->d.data, addr, length))
+	      && this->compare (&s->d.data, addr, length))
 	    return &s->d.data;
 	  else
 	    m_half_hash_miss_count++;
@@ -224,21 +203,28 @@ bcache::insert (const void *addr, int length, int *added)
     m_unique_size += length;
     m_structure_size += BSTRING_SIZE (length);
 
-    if (added)
-      *added = 1;
+    if (added != nullptr)
+      *added = true;
 
     return &newobj->d.data;
   }
 }
 
 
-/* Compare the byte string at ADDR1 of lenght LENGHT to the
-   string at ADDR2.  Return 1 if they are equal.  */
+/* See bcache.h.  */
+
+unsigned long
+bcache::hash (const void *addr, int length)
+{
+  return fast_hash (addr, length, 0);
+}
+
+/* See bcache.h.  */
 
 int
-bcache::compare (const void *addr1, const void *addr2, int length)
+bcache::compare (const void *left, const void *right, int length)
 {
-  return memcmp (addr1, addr2, length) == 0;
+  return memcmp (left, right, length) == 0;
 }
 
 /* Free all the storage associated with BCACHE.  */
@@ -311,10 +297,8 @@ bcache::print_statistics (const char *type)
 
     /* To compute the median, we need the set of chain lengths
        sorted.  */
-    qsort (chain_length, m_num_buckets, sizeof (chain_length[0]),
-	   compare_positive_ints);
-    qsort (entry_size, m_unique_count, sizeof (entry_size[0]),
-	   compare_positive_ints);
+    std::sort (chain_length, chain_length + m_num_buckets);
+    std::sort (entry_size, entry_size + m_unique_count);
 
     if (m_num_buckets > 0)
       {
@@ -403,3 +387,5 @@ bcache::memory_used ()
     return 0;
   return obstack_memory_used (&m_cache);
 }
+
+} /* namespace gdb */

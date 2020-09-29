@@ -1,6 +1,6 @@
 /* DTrace probe support for GDB.
 
-   Copyright (C) 2014-2019 Free Software Foundation, Inc.
+   Copyright (C) 2014-2020 Free Software Foundation, Inc.
 
    Contributed by Oracle, Inc.
 
@@ -21,7 +21,6 @@
 
 #include "defs.h"
 #include "probe.h"
-#include "common/vec.h"
 #include "elf-bfd.h"
 #include "gdbtypes.h"
 #include "obstack.h"
@@ -122,7 +121,7 @@ public:
   CORE_ADDR get_relocated_address (struct objfile *objfile) override;
 
   /* See probe.h.  */
-  unsigned get_argument_count (struct frame_info *frame) override;
+  unsigned get_argument_count (struct gdbarch *gdbarch) override;
 
   /* See probe.h.  */
   bool can_evaluate_arguments () const override;
@@ -152,7 +151,7 @@ public:
   struct dtrace_probe_arg *get_arg_by_number (unsigned n,
 					      struct gdbarch *gdbarch);
 
-  /* Build the GDB internal expressiosn that, once evaluated, will
+  /* Build the GDB internal expression that, once evaluated, will
      calculate the values of the arguments of the probe.  */
   void build_arg_exprs (struct gdbarch *gdbarch);
 
@@ -521,7 +520,7 @@ dtrace_process_dof (asection *sect, struct objfile *objfile,
 		    std::vector<std::unique_ptr<probe>> *probesp,
 		    struct dtrace_dof_hdr *dof)
 {
-  struct gdbarch *gdbarch = get_objfile_arch (objfile);
+  struct gdbarch *gdbarch = objfile->arch ();
   struct dtrace_dof_sect *section;
   int i;
 
@@ -686,14 +685,13 @@ dtrace_probe::is_enabled () const
 CORE_ADDR
 dtrace_probe::get_relocated_address (struct objfile *objfile)
 {
-  return this->get_address () + ANOFFSET (objfile->section_offsets,
-					  SECT_OFF_DATA (objfile));
+  return this->get_address () + objfile->data_section_offset ();
 }
 
 /* Implementation of the get_argument_count method.  */
 
 unsigned
-dtrace_probe::get_argument_count (struct frame_info *frame)
+dtrace_probe::get_argument_count (struct gdbarch *gdbarch)
 {
   return m_args.size ();
 }
@@ -862,7 +860,7 @@ dtrace_static_probe_ops::get_probes
          else
 	    complaint (_("could not obtain the contents of"
 			 "section '%s' in objfile `%s'."),
-		       sect->name, abfd->filename);
+		       bfd_section_name (sect), bfd_get_filename (abfd));
 
 	  xfree (dof);
 	}
@@ -898,8 +896,9 @@ info_probes_dtrace_command (const char *arg, int from_tty)
   info_probes_for_spops (arg, from_tty, &dtrace_static_probe_ops);
 }
 
+void _initialize_dtrace_probe ();
 void
-_initialize_dtrace_probe (void)
+_initialize_dtrace_probe ()
 {
   all_static_probe_ops.push_back (&dtrace_static_probe_ops);
 

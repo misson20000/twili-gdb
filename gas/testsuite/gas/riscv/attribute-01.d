@@ -1,4 +1,4 @@
-#as: -march=rv32g -march-attr
+#as: -march=rv32g -march-attr -misa-spec=2.2
 #readelf: -A
 #source: empty.s
 Attribute Section: riscv

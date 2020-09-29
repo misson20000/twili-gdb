@@ -1,4 +1,4 @@
-#   Copyright 1988-2019 Free Software Foundation, Inc.
+#   Copyright 1988-2020 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -121,16 +121,22 @@ set main_line $bp_location6
 set bp_location7 [gdb_get_line_number "set breakpoint 7 here"]
 set bp_location8 [gdb_get_line_number "set breakpoint 8 here" $srcfile1]
 
+# In C++ mode, we see a full prototype; in C mode, we only see the
+# function name, with no parameter info.
+proc func {name} {
+    return "${name}(?:\(\[^\r\n\]*\))?"
+}
+
 gdb_test "info break" \
     "Num     Type\[ \]+Disp Enb Address\[ \]+What.*
-\[0-9\]+\[\t \]+breakpoint     keep y.* in main at .*$srcfile:$main_line.*
-\[0-9\]+\[\t \]+breakpoint     keep y.* in marker2 at .*$srcfile1:$bp_location8.*
-\[0-9\]+\[\t \]+breakpoint     keep y.* in factorial at .*$srcfile:$bp_location7.*
-\[0-9\]+\[\t \]+breakpoint     keep y.* in main at .*$srcfile:$bp_location1.*
-\[0-9\]+\[\t \]+breakpoint     keep y.* in main at .*$srcfile:$bp_location1.*
-\[0-9\]+\[\t \]+breakpoint     keep y.* in main at .*$srcfile:$bp_location2.*
-\[0-9\]+\[\t \]+breakpoint     keep y.* in multi_line_if_conditional at .*$srcfile:$bp_location3.*
-\[0-9\]+\[\t \]+breakpoint     keep y.* in multi_line_while_conditional at .*$srcfile:$bp_location4" \
+\[0-9\]+\[\t \]+breakpoint     keep y.* in [func main] at .*$srcfile:$main_line.*
+\[0-9\]+\[\t \]+breakpoint     keep y.* in [func marker2] at .*$srcfile1:$bp_location8.*
+\[0-9\]+\[\t \]+breakpoint     keep y.* in [func factorial] at .*$srcfile:$bp_location7.*
+\[0-9\]+\[\t \]+breakpoint     keep y.* in [func main] at .*$srcfile:$bp_location1.*
+\[0-9\]+\[\t \]+breakpoint     keep y.* in [func main] at .*$srcfile:$bp_location1.*
+\[0-9\]+\[\t \]+breakpoint     keep y.* in [func main] at .*$srcfile:$bp_location2.*
+\[0-9\]+\[\t \]+breakpoint     keep y.* in [func multi_line_if_conditional] at .*$srcfile:$bp_location3.*
+\[0-9\]+\[\t \]+breakpoint     keep y.* in [func multi_line_while_conditional] at .*$srcfile:$bp_location4" \
     "breakpoint info"
 
 #
@@ -149,7 +155,7 @@ gdb_test_multiple "info break 2 4 6" "info break 2 4 6" {
 	set see1 1
 	exp_continue
     }
-    -re "2\[\t \]+breakpoint *keep y\[^\r\n\]* in marker2 at \[^\r\n\]*" {
+    -re "2\[\t \]+breakpoint *keep y\[^\r\n\]* in [func marker2] at \[^\r\n\]*" {
 	set see2 1
 	exp_continue
     }
@@ -186,11 +192,11 @@ set see5 0
 set see6 0
 
 gdb_test_multiple "info break 3-5" "info break 3-5" {
-    -re "1\[\t \]+breakpoint *keep y.* in main at .*:$main_line\[^\r\n\]*" {
+    -re "1\[\t \]+breakpoint *keep y.* in [func main] at .*:$main_line\[^\r\n\]*" {
 	set see1 1
 	exp_continue
     }
-    -re "2\[\t \]+breakpoint *keep y\[^\r\n\]* in marker2 at \[^\r\n\]*" {
+    -re "2\[\t \]+breakpoint *keep y\[^\r\n\]* in [func marker2] at \[^\r\n\]*" {
 	set see2 1
 	exp_continue
     }
@@ -243,11 +249,11 @@ set see5 0
 set see6 0
 
 gdb_test_multiple "info break" "check disable with history values" {
-    -re "1\[\t \]+breakpoint *keep y.* in main at .*:$main_line\[^\r\n\]*" {
+    -re "1\[\t \]+breakpoint *keep y.* in [func main] at .*:$main_line\[^\r\n\]*" {
 	set see1 1
 	exp_continue
     }
-    -re "2\[\t \]+breakpoint *keep n\[^\r\n\]* in marker2 at \[^\r\n\]*" {
+    -re "2\[\t \]+breakpoint *keep n\[^\r\n\]* in [func marker2] at \[^\r\n\]*" {
 	set see2 1
 	exp_continue
     }
@@ -289,11 +295,11 @@ set see5 0
 set see6 0
 
 gdb_test_multiple "info break" "check disable with convenience values" {
-    -re "1\[\t \]+breakpoint *keep y.* in main at .*:$main_line\[^\r\n\]*" {
+    -re "1\[\t \]+breakpoint *keep y.* in [func main] at .*:$main_line\[^\r\n\]*" {
 	set see1 1
 	exp_continue
     }
-    -re "2\[\t \]+breakpoint *keep y\[^\r\n\]* in marker2 at \[^\r\n\]*" {
+    -re "2\[\t \]+breakpoint *keep y\[^\r\n\]* in [func marker2] at \[^\r\n\]*" {
 	set see2 1
 	exp_continue
     }
@@ -452,12 +458,12 @@ gdb_test  "tbreak $srcfile:$bp_location11" "Temporary breakpoint.*at.* file .*$s
 # check to see what breakpoints are set (temporary this time)
 #
 gdb_test "info break" "Num     Type.*Disp Enb Address.*What.*\[\r\n\]
-\[0-9\]+\[\t \]+breakpoint     del.*y.*in main at .*$srcfile:$main_line.*\[\r\n\]
-\[0-9\]+\[\t \]+breakpoint     del.*y.*in factorial at .*$srcfile:$bp_location7.*\[\r\n\]
-\[0-9\]+\[\t \]+breakpoint     del.*y.*in main at .*$srcfile:$bp_location1.*\[\r\n\]
-\[0-9\]+\[\t \]+breakpoint     del.*y.*in main at .*$srcfile:$bp_location6.*\[\r\n\]
-\[0-9\]+\[\t \]+breakpoint     del.*y.*in main at .*$srcfile:$bp_location2.*\[\r\n\]
-\[0-9\]+\[\t \]+breakpoint     del.*y.*in main at .*$srcfile:$bp_location11.*" \
+\[0-9\]+\[\t \]+breakpoint     del.*y.*in [func main] at .*$srcfile:$main_line.*\[\r\n\]
+\[0-9\]+\[\t \]+breakpoint     del.*y.*in [func factorial] at .*$srcfile:$bp_location7.*\[\r\n\]
+\[0-9\]+\[\t \]+breakpoint     del.*y.*in [func main] at .*$srcfile:$bp_location1.*\[\r\n\]
+\[0-9\]+\[\t \]+breakpoint     del.*y.*in [func main] at .*$srcfile:$bp_location6.*\[\r\n\]
+\[0-9\]+\[\t \]+breakpoint     del.*y.*in [func main] at .*$srcfile:$bp_location2.*\[\r\n\]
+\[0-9\]+\[\t \]+breakpoint     del.*y.*in [func main] at .*$srcfile:$bp_location11.*" \
     "Temporary breakpoint info"
 
 
@@ -468,10 +474,6 @@ gdb_test "info break" "Num     Type.*Disp Enb Address.*What.*\[\r\n\]
 # in this test program.)
 #
 if ![runto_main] then { fail "break tests suppressed" }
-
-gdb_test "catch" \
-    "Catch requires an event name." \
-    "catch requires an event name"
 
 gdb_test "catch fork" "Catchpoint \[0-9\]+ \\(fork\\)" \
     "set catch fork, never expected to trigger"
@@ -583,22 +585,25 @@ gdb_test "clear marker3" {Deleted breakpoints [0-9]+ [0-9]+.*}
 
 # Verify that a breakpoint can be set via a convenience variable.
 #
-gdb_test_no_output "set \$foo=$bp_location11" \
-    "set convenience variable \$foo to bp_location11"
 
-gdb_test "break \$foo" \
-    "Breakpoint (\[0-9\]*) at .*, line $bp_location11.*" \
-    "set breakpoint via convenience variable"
+with_test_prefix "set line breakpoint via convenience variable" {
+    gdb_test_no_output "set \$foo=$bp_location11" \
+	"set convenience variable \$foo to bp_location11"
 
-# Verify that GDB responds gracefully to an attempt to set a
-# breakpoint via a convenience variable whose type is not integer.
-#
-gdb_test_no_output "set \$foo=81.5" \
-    "set convenience variable \$foo to 81.5"
+    gdb_test "break \$foo" \
+	"Breakpoint (\[0-9\]*) at .*, line $bp_location11.*"
 
-gdb_test "break \$foo" \
-    "Convenience variables used in line specs must have integer values.*" \
-    "set breakpoint via non-integer convenience variable disallowed"
+    # Verify that GDB responds gracefully to an attempt to set a
+    # breakpoint via a convenience variable whose type is not integer.
+    #
+
+    gdb_test_no_output "set \$foo=81.5" \
+	"set convenience variable \$foo to 81.5"
+
+    gdb_test "break \$foo" \
+	"Convenience variables used in line specs must have integer values.*" \
+	"non-integer convenience variable disallowed"
+}
 
 # Verify that we can set and trigger a breakpoint in a user-called function.
 #
@@ -607,7 +612,7 @@ gdb_test "break marker2" \
     "set breakpoint on to-be-called function"
 
 gdb_test "print marker2(99)" \
-    "The program being debugged stopped while in a function called from GDB.\r\nEvaluation of the expression containing the function\r\n.marker2. will be abandoned.\r\nWhen the function is done executing, GDB will silently stop.*" \
+    "The program being debugged stopped while in a function called from GDB.\r\nEvaluation of the expression containing the function\r\n.[func marker2]. will be abandoned.\r\nWhen the function is done executing, GDB will silently stop.*" \
     "hit breakpoint on called function"
 
 # As long as we're stopped (breakpointed) in a called function,
@@ -845,29 +850,31 @@ gdb_test_multiple "" $test {
 #
 # Test break via convenience variable with file name
 #
-set line [gdb_get_line_number "set breakpoint 1 here"]
-gdb_test_no_output "set \$l = $line"
 
-set line_actual "-1"
-set test "break ${srcfile}:\$l"
-gdb_test_multiple "$test" $test {
-    -re "Breakpoint $decimal at $hex: file .*break\\.c, line ($decimal)\\.\r\n$gdb_prompt $" {
-        # Save the actual line number on which the breakpoint was
-        # actually set. On some systems (Eg: Ubuntu 16.04 with GCC
-        # version 5.4.0), that line gets completely inlined, including
-        # the call to printf, and so we end up inserting the breakpoint
-        # on one of the following lines instead.
-        set line_actual $expect_out(1,string)
-        pass $test
+with_test_prefix "set line:file breakpoint via convenience variable" {
+    set line [gdb_get_line_number "set breakpoint 1 here"]
+    gdb_test_no_output "set \$l = $line"
+
+    set line_actual "-1"
+    set test "break ${srcfile}:\$l"
+    gdb_test_multiple "$test" $test {
+	-re "Breakpoint $decimal at $hex: file .*break\\.c, line ($decimal)\\.\r\n$gdb_prompt $" {
+	    # Save the actual line number on which the breakpoint was
+	    # actually set. On some systems (Eg: Ubuntu 16.04 with GCC
+	    # version 5.4.0), that line gets completely inlined, including
+	    # the call to printf, and so we end up inserting the breakpoint
+	    # on one of the following lines instead.
+	    set line_actual $expect_out(1,string)
+	    pass $test
+	}
     }
+
+    gdb_test_no_output "set \$foo=81.5" \
+	"set convenience variable \$foo to 81.5"
+    gdb_test "break $srcfile:\$foo" \
+	"Convenience variables used in line specs must have integer values.*" \
+	"non-integer convenience variable disallowed"
 }
-
-gdb_test_no_output "set \$foo=81.5" \
-    "set convenience variable \$foo to 81.5"
-gdb_test "break $srcfile:\$foo" \
-    "Convenience variables used in line specs must have integer values.*" \
-    "set breakpoint via non-integer convenience variable disallowed"
-
 
 #
 # Test that commands can be cleared without error.
